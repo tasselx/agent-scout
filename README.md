@@ -335,6 +335,25 @@ ln -sfn "$(pwd)/skills/agent-scout-search" ~/.codex/skills/agent-scout-search
 - 自动提取的 key 是本机明文存储的敏感凭证，仅在内存使用，不落盘、不打印完整值。
 - 非 Windsurf/Devin 官方产品。
 
+## 示例输出
+
+一次 `agent-scout "rust async" --limit 2` 的 stdout 输出形如：
+
+```json
+{
+  "hits": [
+    {
+      "title": "Async Programming in Rust",
+      "url": "https://rust-lang.github.io/async-book/",
+      "snippet": "A book about asynchronous programming in Rust...",
+      "source": "windsurf"
+    }
+  ]
+}
+```
+
+> 提示：配合 `jq` 可以快速取字段，如 `agent-scout "query" | jq '.hits[].url'`。
+
 ## 错误日志
 
 每次运行会在 `~/.config/windsurf-search/logs/agent-scout-YYYY-MM-DD.log` 写入日志：
