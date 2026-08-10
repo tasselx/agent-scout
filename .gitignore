@@ -1,0 +1,13 @@
+/target
+/dist
+Cargo.lock
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+
+# 敏感文件（绝不提交）
+api-key
+*.pem
+*.inscode/

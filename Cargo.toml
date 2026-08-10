@@ -1,0 +1,25 @@
+[package]
+name = "agent-scout"
+version = "0.1.0"
+edition = "2021"
+description = "MCP server + CLI for Windsurf/Devin server-side web search (GetWebSearchResults), Rust core"
+license = "MIT"
+
+[[bin]]
+name = "agent-scout"
+path = "src/main.rs"
+
+[lib]
+name = "agent_scout"
+path = "src/lib.rs"
+
+[dependencies]
+ureq = { version = "2", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+home = "0.5"
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[profile.release]
+strip = true
+lto = true
