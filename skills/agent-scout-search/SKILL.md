@@ -45,6 +45,7 @@ stdout is pure JSON:
 | `--limit N` | result count, 1–10, default 5 |
 | `--domain d` | restrict to a domain, e.g. `github.com` |
 | `--mode m` | upstream search mode |
+| `--pretty` | pretty-print the JSON output |
 | `--api-key k` | explicit key (overrides auto-discovery) |
 
 ## Procedure
@@ -100,6 +101,7 @@ stdout is plain text (the caption); add `--json` to get `{"caption": "..."}`. Op
 | `--question "..."` | question / instruction to the vision model |
 | `--mime m` | mime type, e.g. `image/png` (default guessed from extension) |
 | `--json` | output `{"caption": "..."}` instead of plain text |
+| `--pretty` | pretty-print the JSON output (with `--json`) |
 | `--api-key k` | explicit key (overrides auto-discovery) |
 
 ## Audio transcription (转写)
@@ -126,6 +128,7 @@ stdout is plain text (the transcript); add `--json` to get `{"transcribedText": 
 |------|---------|
 | `--timeout N` | timeout in seconds (default 60) |
 | `--json` | output `{"transcribedText": "..."}` instead of plain text |
+| `--pretty` | pretty-print the JSON output (with `--json`) |
 | `--api-key k` | explicit key (overrides auto-discovery) |
 
 ## Troubleshooting

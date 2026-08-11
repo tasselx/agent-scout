@@ -86,6 +86,7 @@ $BIN "tauri window drag region" --limit 3
 | `--limit N` | 结果数（1–10，默认 5） |
 | `--domain d` | 域名过滤，如 `github.com` |
 | `--mode m` | 上游搜索模式 |
+| `--pretty` | 美化输出 JSON（缩进格式化，便于人读） |
 | `--api-key k` | 显式指定 key（覆盖自动识别） |
 
 ### 💡 关键：默认读取 key 最省事
@@ -105,6 +106,16 @@ $BIN "rust async runtime" --limit 3
 
 > 默认行为：`--api-key` → `WINDSURF_API_KEY` 环境变量 → key 文件 → 本地自动识别。
 > 前三种都未提供时，自动跳到本地识别——所以日常使用往往只需 `$BIN "查询词"` 一条命令。
+
+### 管道处理结果（jq）
+
+搜索 stdout 是纯 JSON，可直接用 `jq` 提取字段：
+
+```bash
+$BIN "tauri" --limit 5 | jq '.hits[] | {title, url}'   # 只取标题和链接
+$BIN "rust async" | jq '.hits | length'                # 统计命中数
+$BIN "tokio" --limit 10 > results.json                 # 保存到文件
+```
 
 ## 2b. 识图（描述 / 分析本地图片）
 
@@ -132,6 +143,7 @@ $BIN caption ~/tmp/image --json
 | `--question "..."` | 对图片的问题 / 指令 |
 | `--mime m` | MIME 类型，如 `image/png`（默认按扩展名猜测） |
 | `--json` | 输出 `{"caption": "..."}` 便于脚本解析（默认纯文本） |
+| `--pretty` | 配合 `--json` 美化输出 JSON |
 | `--api-key k` | 显式指定 key（覆盖自动识别） |
 
 stdout 输出为纯文本描述（无 JSON 包裹）：
@@ -139,6 +151,9 @@ stdout 输出为纯文本描述（无 JSON 包裹）：
 ```text
 界面采用了 React 与 Tailwind CSS 构建，左侧为侧边导航栏，顶部为搜索栏……
 ```
+
+> 脚本解析：加 `--json` 得到 `{"caption": "..."}`，可用 `jq -r '.caption'` 取值，如
+> `$BIN caption ~/Pictures/photo.png --json | jq -r '.caption'`。
 
 ## 2c. 转写（音频转文字）
 
@@ -163,6 +178,7 @@ $BIN transcribe ~/Recordings/long.ogg --timeout 120
 |------|------|
 | `--timeout N` | 超时秒数（默认 60） |
 | `--json` | 输出 `{"transcribedText": "..."}` 便于脚本解析（默认纯文本） |
+| `--pretty` | 配合 `--json` 美化输出 JSON |
 | `--api-key k` | 显式指定 key（覆盖自动识别） |
 
 stdout 输出为纯文本转写（无 JSON 包裹）：
@@ -170,6 +186,9 @@ stdout 输出为纯文本转写（无 JSON 包裹）：
 ```text
 好的，会议开始。首先回顾一下上周的进展……
 ```
+
+> 脚本解析：加 `--json` 得到 `{"transcribedText": "..."}`，可用 `jq -r '.transcribedText'` 取值，如
+> `$BIN transcribe ~/Recordings/meeting.wav --json | jq -r '.transcribedText'`。
 
 ## 3. 验证连接
 
@@ -285,9 +304,9 @@ Codex 则链接到 `~/.codex/skills/agent-scout-search`。安装后 agent 在需
 
 | 命令 | 作用 |
 |------|------|
-| `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits |
-| `agent-scout caption <图片路径> [--question "..." --mime m --json] [--api-key k]` | 识图：描述/分析本地图片（`--json` 输出 `{"caption": "..."}`） |
-| `agent-scout transcribe <音频路径> [--timeout N --json] [--api-key k]` | 转写：语音转文字（`--json` 输出 `{"transcribedText": "..."}`） |
+| `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--pretty] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits（`--pretty` 美化输出） |
+| `agent-scout caption <图片路径> [--question "..." --mime m --json --pretty] [--api-key k]` | 识图：描述/分析本地图片（`--json` 输出 `{"caption": "..."}`，`--pretty` 美化 JSON） |
+| `agent-scout transcribe <音频路径> [--timeout N --json --pretty] [--api-key k]` | 转写：语音转文字（`--json` 输出 `{"transcribedText": "..."}`，`--pretty` 美化 JSON） |
 | `agent-scout --mcp` | 以 MCP stdio server 运行 |
 | `agent-scout config set [key]` | 保存 key（chmod 600）；无 key 时交互输入 |
 | `agent-scout config show` | 查看当前 key 状态（掩码显示） |

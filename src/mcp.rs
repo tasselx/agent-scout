@@ -45,7 +45,8 @@ fn web_search_schema() -> Value {
                 "query": { "type": "string", "description": "Search query (required)" },
                 "limit": { "type": "number", "minimum": 1, "maximum": 10, "default": 5, "description": "Max results (1-10)" },
                 "domain": { "type": "string", "description": "Optional domain restriction, e.g. github.com" },
-                "mode": { "type": "number", "description": "Optional search mode" }
+                "mode": { "type": "number", "description": "Optional search mode" },
+                "pretty": { "type": "boolean", "default": false, "description": "Pretty-print the JSON output" }
             },
             "required": ["query"],
             "additionalProperties": false
@@ -63,7 +64,8 @@ fn image_caption_schema() -> Value {
                 "image_path": { "type": "string", "description": "Path to a local image file (PNG/JPG/WebP/GIF)" },
                 "image_base64": { "type": "string", "description": "Raw base64 image data (data: prefix optional)" },
                 "mime": { "type": "string", "description": "Mime type, e.g. image/png (default guessed from path)" },
-                "question": { "type": "string", "description": "Optional question / instruction about the image" }
+                "question": { "type": "string", "description": "Optional question / instruction about the image" },
+                "pretty": { "type": "boolean", "default": false, "description": "Pretty-print the JSON output" }
             },
             "additionalProperties": false
         }
@@ -79,7 +81,8 @@ fn audio_transcribe_schema() -> Value {
             "properties": {
                 "audio_path": { "type": "string", "description": "Path to a local audio file (wav/mp3/ogg/opus/webm/m4a/flac)" },
                 "audio_base64": { "type": "string", "description": "Raw base64 audio data (data: prefix optional)" },
-                "timeout": { "type": "number", "minimum": 1, "default": 60, "description": "Timeout in seconds (default 60)" }
+                "timeout": { "type": "number", "minimum": 1, "default": 60, "description": "Timeout in seconds (default 60)" },
+                "pretty": { "type": "boolean", "default": false, "description": "Pretty-print the JSON output" }
             },
             "additionalProperties": false
         }
@@ -142,6 +145,7 @@ fn call_tool(name: &str, args: &Value) -> Result<String, String> {
 }
 
 fn call_web_search(args: &Value) -> Result<String, String> {
+    let pretty = args.get("pretty").and_then(Value::as_bool).unwrap_or(false);
     let query = args
         .get("query")
         .and_then(Value::as_str)
@@ -169,10 +173,11 @@ fn call_web_search(args: &Value) -> Result<String, String> {
         crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
     let hits = search(&api_key, &query, &opts).map_err(|e| e.to_string())?;
     let payload = json!({ "hits": hits });
-    Ok(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()))
+    Ok(render_json(&payload, pretty))
 }
 
 fn call_image_caption(args: &Value) -> Result<String, String> {
+    let pretty = args.get("pretty").and_then(Value::as_bool).unwrap_or(false);
     let image_path = args.get("image_path").and_then(Value::as_str).unwrap_or("").trim();
     let image_base64 = args.get("image_base64").and_then(Value::as_str).unwrap_or("").trim();
 
@@ -206,10 +211,11 @@ fn call_image_caption(args: &Value) -> Result<String, String> {
         crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
     let caption = caption_image(&api_key, &base64_data, &opts).map_err(|e| e.to_string())?;
     let payload = json!({ "caption": caption });
-    Ok(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()))
+    Ok(render_json(&payload, pretty))
 }
 
 fn call_audio_transcribe(args: &Value) -> Result<String, String> {
+    let pretty = args.get("pretty").and_then(Value::as_bool).unwrap_or(false);
     let audio_path = args.get("audio_path").and_then(Value::as_str).unwrap_or("").trim();
     let audio_base64 = args.get("audio_base64").and_then(Value::as_str).unwrap_or("").trim();
 
@@ -234,12 +240,21 @@ fn call_audio_transcribe(args: &Value) -> Result<String, String> {
         crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
     let text = transcribe_audio(&api_key, &base64_data, &opts).map_err(|e| e.to_string())?;
     let payload = json!({ "transcribedText": text });
-    Ok(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()))
+    Ok(render_json(&payload, pretty))
 }
 
 fn render_response(id: Value, result: Value) -> String {
     serde_json::to_string(&json!({ "jsonrpc": "2.0", "id": id, "result": result }))
         .unwrap_or_default()
+}
+
+/// Serialize a payload as compact or pretty JSON, depending on the `pretty` flag.
+fn render_json(payload: &Value, pretty: bool) -> String {
+    if pretty {
+        serde_json::to_string_pretty(payload).unwrap_or_else(|_| "{}".to_string())
+    } else {
+        serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string())
+    }
 }
 
 fn env_vars() -> Vec<(String, String)> {

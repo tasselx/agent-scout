@@ -193,6 +193,7 @@ fn run_caption(
         opts.mime_type = guess_mime_from_path(&image_path);
     }
     let as_json = flags.contains_key("json");
+    let pretty = flags.contains_key("pretty");
     match caption_image(&api_key, &base64_data, &opts) {
         Ok(caption) => {
             agent_scout::log::log_info(
@@ -200,7 +201,12 @@ fn run_caption(
                 &format!("caption success: path={:?} chars={}", image_path, caption.chars().count()),
             );
             if as_json {
-                println!("{}", serde_json::json!({ "caption": caption }));
+                let payload = serde_json::json!({ "caption": caption });
+                if pretty {
+                    println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
+                } else {
+                    println!("{}", payload);
+                }
             } else {
                 println!("{}", caption);
             }
@@ -250,6 +256,7 @@ fn run_transcribe(
         }
     }
     let as_json = flags.contains_key("json");
+    let pretty = flags.contains_key("pretty");
     match transcribe_audio(&api_key, &base64_data, &opts) {
         Ok(text) => {
             agent_scout::log::log_info(
@@ -257,7 +264,12 @@ fn run_transcribe(
                 &format!("transcribe success: path={:?} chars={}", audio_path, text.chars().count()),
             );
             if as_json {
-                println!("{}", serde_json::json!({ "transcribedText": text }));
+                let payload = serde_json::json!({ "transcribedText": text });
+                if pretty {
+                    println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
+                } else {
+                    println!("{}", payload);
+                }
             } else {
                 println!("{}", text);
             }
@@ -348,7 +360,11 @@ pub fn main_entry() -> i32 {
     match search(&api_key, &query, &opts) {
         Ok(hits) => {
             let payload = serde_json::json!({ "hits": hits });
-            println!("{}", serde_json::to_string(&payload).unwrap_or_default());
+            if args.flags.contains_key("pretty") {
+                println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
+            } else {
+                println!("{}", serde_json::to_string(&payload).unwrap_or_default());
+            }
             agent_scout::log::log_info(
                 &home,
                 &format!("search success: query={:?} hits={}", query, hits.len()),

@@ -182,18 +182,52 @@ agent-scout config test 'connectivity check'
 agent-scout config clear
 ```
 
+### 管道与脚本化
+
+搜索结果本身是纯 JSON，可直接喂给 `jq` 等工具；识图/转写加 `--json` 后同样可脚本化解析：
+
+```bash
+# 只取标题和链接
+agent-scout "tauri" --limit 5 | jq '.hits[] | {title, url}'
+
+# 统计命中数
+agent-scout "rust async" | jq '.hits | length'
+
+# 识图结果转 JSON 后取字段
+agent-scout caption ~/Pictures/photo.png --json | jq -r '.caption'
+
+# 转写结果转 JSON 后取字段
+agent-scout transcribe ~/Recordings/meeting.wav --json | jq -r '.transcribedText'
+
+# 美化输出（缩进格式化，便于人读）
+agent-scout "tauri" --limit 5 --pretty
+agent-scout caption ~/Pictures/photo.png --json --pretty
+agent-scout transcribe ~/Recordings/meeting.wav --json --pretty
+
+# 输出到文件
+agent-scout "tokio" --limit 10 > results.json
+```
+
+> 提示：`--json` 只影响输出格式，不影响退出码；`--pretty` 仅对 JSON 输出生效（搜索默认即 JSON；识图/转写需配合 `--json`）。
+> 解析失败时 stderr 会给出诊断信息，stdout 保持纯净。
+
 ### CLI 命令速查
 
 | 命令 | 作用 |
 |------|------|
-| `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits |
-| `agent-scout caption <图片路径> [--question "..." --mime m --json] [--api-key k]` | 识图：描述或分析本地图片，stdout 输出描述文本（`--json` 输出 `{"caption": "..."}`） |
-| `agent-scout transcribe <音频路径> [--timeout N --json] [--api-key k]` | 转写：语音转文字，stdout 输出转写文本（`--json` 输出 `{"transcribedText": "..."}`） |
+| `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--pretty] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits（`--pretty` 美化输出） |
+| `agent-scout caption <图片路径> [--question "..." --mime m --json --pretty] [--api-key k]` | 识图：描述或分析本地图片，stdout 输出描述文本（`--json` 输出 `{"caption": "..."}`，`--pretty` 美化 JSON） |
+| `agent-scout transcribe <音频路径> [--timeout N --json --pretty] [--api-key k]` | 转写：语音转文字，stdout 输出转写文本（`--json` 输出 `{"transcribedText": "..."}`，`--pretty` 美化 JSON） |
 | `agent-scout --mcp` | 以 MCP stdio server 运行 |
 | `agent-scout config set [key]` | 保存 key（chmod 600）；无 key 时交互输入 |
 | `agent-scout config show` | 查看当前 key 状态（掩码显示） |
 | `agent-scout config test [query]` | 连通性测试（真实搜索验证 key） |
 | `agent-scout config clear` | 删除已保存的 key 文件 |
+
+### 退出码
+
+`0` = 成功，`1` = 错误（如无凭证、上游 4xx/5xx），`2` = 用法错误。
+诊断信息走 stderr；搜索的 stdout 为纯 JSON，识图（`caption`）/转写（`transcribe`）的 stdout 为纯文本（加 `--json` 输出 JSON）。
 
 ## 认证（零配置即用）
 
@@ -235,6 +269,7 @@ key 形如 `devin-session-token$...`。
 | `limit` | number | 否 | 1–10，默认 5 |
 | `domain` | string | 否 | 域名过滤 |
 | `mode` | number | 否 | 上游模式 |
+| `pretty` | boolean | 否 | 美化输出 JSON（默认 false） |
 
 返回 MCP text content，JSON：`{ "hits": [ { "title", "url", "snippet", "source": "windsurf" } ] }`
 
@@ -246,6 +281,7 @@ key 形如 `devin-session-token$...`。
 | `image_base64` | string | 是* | 原始 base64 图片数据（可带 `data:` 前缀） |
 | `mime` | string | 否 | MIME 类型，如 `image/png`（默认按路径扩展名猜测） |
 | `question` | string | 否 | 关于图片的问题 / 指令 |
+| `pretty` | boolean | 否 | 美化输出 JSON（默认 false） |
 
 > `image_path` 与 `image_base64` 二选一，至少提供一个。
 
@@ -258,6 +294,7 @@ key 形如 `devin-session-token$...`。
 | `audio_path` | string | 是* | 本地音频文件路径（wav/mp3/ogg/opus/webm/m4a/flac） |
 | `audio_base64` | string | 是* | 原始 base64 音频数据（可带 `data:` 前缀） |
 | `timeout` | number | 否 | 超时秒数（默认 60） |
+| `pretty` | boolean | 否 | 美化输出 JSON（默认 false） |
 
 > `audio_path` 与 `audio_base64` 二选一，至少提供一个。格式由后端自动检测（Whisper）。
 
