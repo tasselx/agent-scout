@@ -13,6 +13,7 @@
 use std::io::Write;
 
 use agent_scout::auth;
+use agent_scout::caption::{caption_image, file_to_base64, guess_mime_from_path, CaptionOptions};
 use agent_scout::search::{search, SearchOptions};
 
 fn print_usage(stream: &mut dyn Write) {
@@ -20,6 +21,7 @@ fn print_usage(stream: &mut dyn Write) {
         b"agent-scout: Windsurf/Devin web search CLI (+ MCP companion)\n\
           usage:\n\
           \x20 agent-scout <query> [--limit N] [--domain d] [--mode m] [--api-key k]\n\
+          \x20 agent-scout caption <image-path> [--question \"...\"] [--mime m] [--json] [--api-key k]\n\
           \x20 agent-scout --mcp                 (run as MCP stdio server)\n\
           \x20 agent-scout config set [key]      (save a key to ~/.config/windsurf-search/api-key, chmod 600)\n\
           \x20 agent-scout config show           (show saved key status, masked)\n\
@@ -39,7 +41,8 @@ fn parse_args(argv: &[String]) -> Args {
     let mut i = 0;
     while i < argv.len() {
         let token = &argv[i];
-        if token == "--limit" || token == "--domain" || token == "--mode" || token == "--api-key" {
+        if token == "--limit" || token == "--domain" || token == "--mode"
+            || token == "--api-key" || token == "--question" || token == "--mime" {
             flags.insert(token[2..].to_string(), argv.get(i + 1).cloned());
             i += 2;
         } else if let Some(rest) = token.strip_prefix("--") {
@@ -144,6 +147,70 @@ fn run_config(action: &str, args: &[String], home: &std::path::Path) -> i32 {
     }
 }
 
+fn run_caption(
+    positionals: &[String],
+    flags: &std::collections::HashMap<String, Option<String>>,
+    home: &std::path::Path,
+) -> i32 {
+    let image_path = positionals.first().cloned().unwrap_or_default();
+    if image_path.is_empty() {
+        eprintln!("agent-scout caption: image path is required");
+        return 2;
+    }
+    let cli_key = flags.get("api-key").cloned().flatten().unwrap_or_default();
+    let api_key = match auth::resolve_api_key(home, &cli_key, &std::env::vars().collect::<Vec<_>>(), None) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("{}", e);
+            agent_scout::log::log_error(home, &format!("resolve api key failed: {e}"));
+            return 1;
+        }
+    };
+    let base64_data = match file_to_base64(&image_path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("agent-scout caption: {}", e);
+            agent_scout::log::log_error(home, &format!("caption read failed: path={:?} error={}", image_path, e));
+            return 1;
+        }
+    };
+    let mut opts = CaptionOptions::default();
+    if let Some(q) = flags.get("question").cloned().flatten() {
+        if !q.is_empty() {
+            opts.message_text = q;
+        }
+    }
+    if let Some(m) = flags.get("mime").cloned().flatten() {
+        if !m.trim().is_empty() {
+            opts.mime_type = m.trim().to_string();
+        } else {
+            opts.mime_type = guess_mime_from_path(&image_path);
+        }
+    } else {
+        opts.mime_type = guess_mime_from_path(&image_path);
+    }
+    let as_json = flags.contains_key("json");
+    match caption_image(&api_key, &base64_data, &opts) {
+        Ok(caption) => {
+            agent_scout::log::log_info(
+                home,
+                &format!("caption success: path={:?} chars={}", image_path, caption.chars().count()),
+            );
+            if as_json {
+                println!("{}", serde_json::json!({ "caption": caption }));
+            } else {
+                println!("{}", caption);
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("agent-scout caption: {}", e);
+            agent_scout::log::log_error(home, &format!("caption failed: path={:?} error={}", image_path, e));
+            1
+        }
+    }
+}
+
 pub fn main_entry() -> i32 {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = parse_args(&argv);
@@ -171,6 +238,10 @@ pub fn main_entry() -> i32 {
             );
         }
         return code;
+    }
+
+    if args.positionals.first().map(String::as_str) == Some("caption") {
+        return run_caption(&args.positionals[1..], &args.flags, &home);
     }
 
     if args.positionals.is_empty() {

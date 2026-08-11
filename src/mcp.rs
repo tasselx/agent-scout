@@ -9,6 +9,7 @@
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 
+use crate::caption::{caption_image, guess_mime_from_path, CaptionOptions};
 use crate::search::{search, SearchOptions};
 
 pub const SERVER_NAME: &str = "agent-scout";
@@ -20,7 +21,13 @@ const TOOL_DESCRIPTION: &str = concat!(
     "Use for current web facts, docs lookups, and general web research."
 );
 
-fn tool_schema() -> Value {
+const CAPTION_TOOL_DESCRIPTION: &str = concat!(
+    "Caption / analyze an image via Windsurf/Devin server-side vision (GetImageCaption). ",
+    "Pass either image_path (a local file) or image_base64 (raw base64, data: prefix optional). ",
+    "Returns the model's text analysis of the image."
+);
+
+fn web_search_schema() -> Value {
     json!({
         "name": "web_search",
         "description": TOOL_DESCRIPTION,
@@ -36,6 +43,27 @@ fn tool_schema() -> Value {
             "additionalProperties": false
         }
     })
+}
+
+fn image_caption_schema() -> Value {
+    json!({
+        "name": "image_caption",
+        "description": CAPTION_TOOL_DESCRIPTION,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "image_path": { "type": "string", "description": "Path to a local image file (PNG/JPG/WebP/GIF)" },
+                "image_base64": { "type": "string", "description": "Raw base64 image data (data: prefix optional)" },
+                "mime": { "type": "string", "description": "Mime type, e.g. image/png (default guessed from path)" },
+                "question": { "type": "string", "description": "Optional question / instruction about the image" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
+fn tool_list() -> Value {
+    json!({ "tools": [web_search_schema(), image_caption_schema()] })
 }
 
 /// Handle a single JSON-RPC message, returning optional output lines to write.
@@ -61,7 +89,7 @@ fn handle_message(message: &Value) -> Option<String> {
             "capabilities": { "tools": {} },
             "serverInfo": { "name": SERVER_NAME, "version": crate::VERSION }
         }),
-        "tools/list" => json!({ "tools": [tool_schema()] }),
+        "tools/list" => json!({ "tools": tool_list()["tools"].clone() }),
         "tools/call" => {
             let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
@@ -81,9 +109,14 @@ fn handle_message(message: &Value) -> Option<String> {
 }
 
 fn call_tool(name: &str, args: &Value) -> Result<String, String> {
-    if name != "web_search" {
-        return Err(format!("unknown tool: {}", name));
+    match name {
+        "web_search" => call_web_search(args),
+        "image_caption" => call_image_caption(args),
+        _ => Err(format!("unknown tool: {}", name)),
     }
+}
+
+fn call_web_search(args: &Value) -> Result<String, String> {
     let query = args
         .get("query")
         .and_then(Value::as_str)
@@ -111,6 +144,43 @@ fn call_tool(name: &str, args: &Value) -> Result<String, String> {
         crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
     let hits = search(&api_key, &query, &opts).map_err(|e| e.to_string())?;
     let payload = json!({ "hits": hits });
+    Ok(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+fn call_image_caption(args: &Value) -> Result<String, String> {
+    let image_path = args.get("image_path").and_then(Value::as_str).unwrap_or("").trim();
+    let image_base64 = args.get("image_base64").and_then(Value::as_str).unwrap_or("").trim();
+
+    // Resolve image bytes as base64 (data: prefix allowed).
+    let base64_data = if !image_path.is_empty() {
+        crate::caption::file_to_base64(image_path)?
+    } else if !image_base64.is_empty() {
+        image_base64.to_string()
+    } else {
+        return Err("image_caption: provide image_path or image_base64".to_string());
+    };
+
+    let mut opts = CaptionOptions::default();
+    if let Some(q) = args.get("question").and_then(Value::as_str) {
+        if !q.is_empty() {
+            opts.message_text = q.to_string();
+        }
+    }
+    if let Some(m) = args.get("mime").and_then(Value::as_str) {
+        if !m.trim().is_empty() {
+            opts.mime_type = m.trim().to_string();
+        } else if !image_path.is_empty() {
+            opts.mime_type = guess_mime_from_path(image_path);
+        }
+    } else if !image_path.is_empty() {
+        opts.mime_type = guess_mime_from_path(image_path);
+    }
+
+    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
+    let api_key =
+        crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
+    let caption = caption_image(&api_key, &base64_data, &opts).map_err(|e| e.to_string())?;
+    let payload = json!({ "caption": caption });
     Ok(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
@@ -275,10 +345,14 @@ mod tests {
         let msg = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
         let out = handle_message(&msg).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
-        let tool = &v["result"]["tools"][0];
-        assert_eq!(tool["name"], "web_search");
-        assert_eq!(tool["inputSchema"]["required"][0], "query");
-        assert_eq!(tool["inputSchema"]["properties"]["limit"]["maximum"], 10);
+        let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter()
+            .filter_map(|t| t["name"].as_str()).collect();
+        assert!(names.contains(&"web_search"));
+        assert!(names.contains(&"image_caption"));
+        let ws = &v["result"]["tools"][0];
+        assert_eq!(ws["name"], "web_search");
+        assert_eq!(ws["inputSchema"]["required"][0], "query");
+        assert_eq!(ws["inputSchema"]["properties"]["limit"]["maximum"], 10);
     }
 
     #[test]
@@ -289,6 +363,16 @@ mod tests {
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["result"]["isError"], true);
         assert!(v["result"]["content"][0]["text"].as_str().unwrap().contains("query is required"));
+    }
+
+    #[test]
+    fn image_caption_requires_image() {
+        let msg = json!({ "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+            "params": { "name": "image_caption", "arguments": {} } });
+        let out = handle_message(&msg).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["result"]["isError"], true);
+        assert!(v["result"]["content"][0]["text"].as_str().unwrap().contains("image_path or image_base64"));
     }
 
     #[test]

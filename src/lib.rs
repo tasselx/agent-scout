@@ -2,6 +2,7 @@
 //! Core logic is pure Rust; see `search` and `auth` modules.
 
 pub mod auth;
+pub mod caption;
 pub mod log;
 pub mod mcp;
 pub mod search;
