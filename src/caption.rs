@@ -1,5 +1,5 @@
 //! Image captioning against Windsurf/Devin server-side vision
-//! (`GetImageCaption`). Rust port of the reference `attachments/image-caption.mjs`.
+//! (`GetImageCaption`).
 //!
 //! Pure helpers are separated so they can be unit-tested without network.
 
