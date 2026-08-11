@@ -35,6 +35,18 @@ const TRANSCRIBE_TOOL_DESCRIPTION: &str = concat!(
     "Returns the transcribed text."
 );
 
+const FAST_CONTEXT_TOOL_DESCRIPTION: &str = concat!(
+    "AI-driven semantic code search via Windsurf's Devstral model (reverse-engineered SWE-grep ",
+    "protocol, same auth as the other tools). Searches a local codebase with a natural-language ",
+    "query and returns relevant file paths with line ranges, plus suggested grep keywords.\n",
+    "Parameter tuning:\n",
+    "- tree_depth (1-6, default 3): how much directory structure the remote AI sees. REDUCE on ",
+    "payload/size errors; INCREASE for small projects.\n",
+    "- max_turns (1-5, default 3): search rounds. INCREASE for deep tracing; 1 for quick lookups.\n",
+    "- max_results (1-30, default 10): max files to return.\n",
+    "- exclude_paths: dirs to skip in the repo map, e.g. [\"node_modules\",\"dist\",\".git\"].",
+);
+
 fn web_search_schema() -> Value {
     json!({
         "name": "web_search",
@@ -52,6 +64,35 @@ fn web_search_schema() -> Value {
             "additionalProperties": false
         }
     })
+}
+
+fn fast_context_schema() -> Value {
+    json!({
+        "name": "fast_context_search",
+        "description": FAST_CONTEXT_TOOL_DESCRIPTION,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Natural-language search query (required)" },
+                "project_path": { "type": "string", "description": "Absolute path to project root. Empty = current working directory." },
+                "tree_depth": { "type": "number", "minimum": 1, "maximum": 6, "default": 3, "description": "Directory tree depth for the repo map" },
+                "max_turns": { "type": "number", "minimum": 1, "maximum": 5, "default": 3, "description": "Search rounds" },
+                "max_results": { "type": "number", "minimum": 1, "maximum": 30, "default": 10, "description": "Max files to return" },
+                "exclude_paths": { "type": "array", "items": { "type": "string" }, "description": "Dirs/patterns to exclude from the repo map" }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        }
+    })
+}
+
+fn tool_list() -> Value {
+    json!({ "tools": [
+        web_search_schema(),
+        image_caption_schema(),
+        audio_transcribe_schema(),
+        fast_context_schema()
+    ] })
 }
 
 fn image_caption_schema() -> Value {
@@ -87,10 +128,6 @@ fn audio_transcribe_schema() -> Value {
             "additionalProperties": false
         }
     })
-}
-
-fn tool_list() -> Value {
-    json!({ "tools": [web_search_schema(), image_caption_schema(), audio_transcribe_schema()] })
 }
 
 /// Handle a single JSON-RPC message, returning optional output lines to write.
@@ -140,6 +177,7 @@ fn call_tool(name: &str, args: &Value) -> Result<String, String> {
         "web_search" => call_web_search(args),
         "image_caption" => call_image_caption(args),
         "audio_transcribe" => call_audio_transcribe(args),
+        "fast_context_search" => call_fast_context_search(args),
         _ => Err(format!("unknown tool: {}", name)),
     }
 }
@@ -241,6 +279,68 @@ fn call_audio_transcribe(args: &Value) -> Result<String, String> {
     let text = transcribe_audio(&api_key, &base64_data, &opts).map_err(|e| e.to_string())?;
     let payload = json!({ "transcribedText": text });
     Ok(render_json(&payload, pretty))
+}
+
+fn call_fast_context_search(args: &Value) -> Result<String, String> {
+    let query = args
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if query.is_empty() {
+        return Err("fast_context_search: query is required".to_string());
+    }
+
+    let mut opts = crate::fastcontext::SearchOptions::default();
+    opts.query = query;
+    if let Some(p) = args.get("project_path").and_then(Value::as_str) {
+        if !p.trim().is_empty() {
+            opts.project_root = std::path::PathBuf::from(p.trim());
+        }
+    }
+    if let Some(d) = args.get("tree_depth").and_then(Value::as_u64) {
+        if (1..=6).contains(&d) {
+            opts.tree_depth = d as u8;
+        }
+    }
+    if let Some(t) = args.get("max_turns").and_then(Value::as_u64) {
+        if (1..=5).contains(&t) {
+            opts.max_turns = t as u8;
+        }
+    }
+    if let Some(r) = args.get("max_results").and_then(Value::as_u64) {
+        if (1..=30).contains(&r) {
+            opts.max_results = r as u8;
+        }
+    }
+    if let Some(excludes) = args.get("exclude_paths").and_then(Value::as_array) {
+        opts.exclude_paths = excludes
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+    }
+
+    if !opts.project_root.is_dir() {
+        return Err(format!(
+            "fast_context_search: project path does not exist: {}",
+            opts.project_root.display()
+        ));
+    }
+
+    // Reuse the same key resolution as the other tools (env → config → local install).
+    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
+    let cli_key = args.get("api_key").and_then(Value::as_str).unwrap_or("").trim();
+    let api_key =
+        crate::auth::resolve_api_key(&home, cli_key, &env_vars(), None).map_err(|e| e.to_string())?;
+    opts.api_key = Some(api_key);
+
+    // fast-context 内部为 async（tokio + reqwest），在此创建一个一次性运行时执行。
+    let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    let result = runtime
+        .block_on(crate::fastcontext::search::search(opts.clone()))
+        .map_err(|e| format!("fast_context_search: {}", e))?;
+    Ok(crate::fastcontext::search::format_result(&result, &opts))
 }
 
 fn render_response(id: Value, result: Value) -> String {

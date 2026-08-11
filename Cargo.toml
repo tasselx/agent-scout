@@ -1,8 +1,8 @@
 [package]
 name = "agent-scout"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
-description = "MCP server + CLI for Windsurf/Devin server-side web search (GetWebSearchResults), Rust core"
+description = "MCP server + CLI for Windsurf/Devin server-side web search, image caption, transcription & AI code search (fast-context), Rust core"
 license = "MIT"
 
 [[bin]]
@@ -18,8 +18,30 @@ ureq = { version = "2", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
+flate2 = "1"
+regex = "1"
 home = "0.5"
 rusqlite = { version = "0.32", features = ["bundled"] }
+anyhow = "1"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "process",
+    "io-util",
+    "sync",
+    "time",
+] }
+reqwest = { version = "0.11", features = ["json"] }
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
+dirs = "5"
+log = "0.4"
+ignore = "0.4"
+globset = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 strip = true

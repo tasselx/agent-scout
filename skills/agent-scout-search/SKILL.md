@@ -6,22 +6,27 @@ description: >
   lookups, generic web research, or answers that need up-to-date info beyond
   the model's training data; (2) image captioning / vision analysis via
   GetImageCaption — describe or answer questions about a local image file;
-  and (3) audio transcription via GetTranscription — transcribe a local audio
-  file to text.
+  (3) audio transcription via GetTranscription — transcribe a local audio
+  file to text; and (4) fast-context AI semantic code search via
+  GetDevstralStream — find relevant files, line ranges, and grep keywords in
+  a local codebase from a natural-language query.
   Triggers on queries like "search the web for X", "look up X", "what is the
-  latest on X", "what does this image show / describe this picture", or
-  "transcribe this audio / what does this recording say".
+  latest on X", "what does this image show / describe this picture",
+  "transcribe this audio / what does this recording say", or "find where X is
+  implemented / where is the authentication logic / which files handle X in
+  this codebase".
   Returns JSON hits with title, url, snippet, and source, the vision model's
-  caption text, or the transcription text. Zero-configuration: automatically
-  discovers the local Devin/Windsurf credential, so no API key management is
-  needed.
+  caption text, the transcription text, or the fast-context result (file
+  paths + line ranges + code snippets + grep keywords). Zero-configuration:
+  automatically discovers the local Devin/Windsurf credential, so no API key
+  management is needed.
 ---
 
-# agent-scout Web Search, Vision & Transcription
+# agent-scout Web Search, Vision, Transcription & Code Search
 
-Search the web, caption/analyze images, and transcribe audio using the
+Search the web, caption/analyze images, transcribe audio, and run AI semantic code search on a local codebase using the
 `agent-scout` binary (Rust implementation of Windsurf/Devin server-side
-`GetWebSearchResults`, `GetImageCaption`, and `GetTranscription`). Auto-discovers
+`GetWebSearchResults`, `GetImageCaption`, `GetTranscription`, and `GetDevstralStream`). Auto-discovers
 the local Devin/Windsurf login credential — no key configuration required.
 
 ## Quick start
@@ -130,6 +135,49 @@ stdout is plain text (the transcript); add `--json` to get `{"transcribedText": 
 | `--json` | output `{"transcribedText": "..."}` instead of plain text |
 | `--pretty` | pretty-print the JSON output (with `--json`) |
 | `--api-key k` | explicit key (overrides auto-discovery) |
+
+## Fast-context code search (代码检索)
+
+Find relevant files, line ranges, and grep keywords in a **local codebase**
+from a natural-language query, using the same Windsurf/Devin backend
+(`GetDevstralStream`, AI-driven semantic code search). The model runs multiple
+rounds of local commands (rg / readfile / tree / ls / glob) and returns the
+matching file paths + inclusive line ranges, with code snippets in the pretty
+output.
+
+```bash
+# Search the current directory
+agent-scout fc "where is the authentication logic?"
+
+# Search a specific project root
+agent-scout fc "auth flow" --path /path/to/project
+
+# Deep search with more results, excluding heavy dirs
+agent-scout fc "auth flow" --path . --turns 4 --max-results 15 \
+  --exclude node_modules,dist,target
+
+# Structured JSON output for scripting
+agent-scout fc "auth" --path . --json | jq '.files[].path'
+```
+
+stdout is the pretty text (file paths + line ranges + code snippets + grep
+keywords + stats/config diagnostics); add `--json` to get structured output.
+Options:
+
+| flag | meaning |
+|------|---------|
+| `--path DIR` | project root to search (default: current directory) |
+| `--turns N` | search rounds, 1–5, default 3 (more = deeper but slower & more quota) |
+| `--depth N` | repo-map tree depth, 1–6, default 3 (lower for huge monorepos) |
+| `--max-results N` | max files to return, 1–30, default 10 |
+| `--exclude a,b` | dirs/patterns to exclude, e.g. `node_modules,dist,.git` |
+| `--json` | structured JSON output instead of pretty text |
+| `--pretty` | pretty-print the JSON output (with `--json`) |
+| `--api-key k` | explicit key (overrides auto-discovery) |
+
+> Note: fast-context consumes Windsurf account quota (one model call per turn;
+> 4 calls by default per query) — prefer one fc call over repeated ones, and
+> tune `--turns` / `--depth` / `--max-results` / `--exclude` to the task.
 
 ## Troubleshooting
 

@@ -1,317 +1,398 @@
 # agent-scout
 
-**web search + 识图 + 音频转写** 命令行工具 + MCP server + Agent Skill，
-基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption` / `GetTranscription`），用 **Rust** 编写。
+**web search + image caption + audio transcription + AI code search** CLI tool + MCP server + Agent Skill,
+backed by Windsurf/Devin server-side APIs (`GetWebSearchResults` / `GetImageCaption` / `GetTranscription` / `GetDevstralStream`), written in **Rust**.
 
-> 这是一个**开源的通用 web 搜索 + 识图 + 转写工具**，不依赖特定客户端——提供三种使用形态：
-> **CLI**（脚本/终端直接调用）、**MCP server**（接入任意 MCP 客户端）、**Agent Skill**（供 AI agent 调用）。
-> 后端走 Windsurf/Devin 认证，并额外内置 **本地安装认证自动提取** 与 **自动清理的错误日志**。
+> This is an **open-source general-purpose web search + image caption + transcription + code search tool** that does not depend on any specific client — it ships in three forms:
+> **CLI** (direct invocation from scripts/terminal), **MCP server** (pluggable into any MCP client), **Agent Skill** (for AI agents to call).
+> It authenticates against Windsurf/Devin, and additionally bundles **automatic local-install credential extraction** and **self-cleaning error logs**.
 
-## 跨平台支持
+> **[简体中文](README.zh-CN.md) | English**
 
-`agent-scout` 使用纯 Rust 编写，**macOS / Linux / Windows 三平台原生支持**，单二进制分发、零运行时依赖：
+## Cross-platform support
 
-| 平台 | 构建 | 认证来源 |
-|------|------|----------|
+`agent-scout` is written in pure Rust — **native support for macOS / Linux / Windows**, single-binary distribution, zero runtime dependencies:
+
+| Platform | Build | Auth source |
+|----------|-------|-------------|
 | macOS | `cargo build --release` | Devin `~/Library/Application Support/Devin/.../state.vscdb` |
-| Linux | `cargo build --release` | Devin `~/.config/Devin/.../state.vscdb`、CLI `credentials.toml`（含 WSL） |
+| Linux | `cargo build --release` | Devin `~/.config/Devin/.../state.vscdb`, CLI `credentials.toml` (incl. WSL) |
 | Windows | `cargo build --release` | Devin `%APPDATA%\Devin\...\state.vscdb` |
 
-> 认证自动提取逻辑内部按平台路由（见「认证」章节），其余功能三平台一致。
+> Credential auto-extraction is routed per-platform internally (see the "Authentication" section); everything else behaves identically across platforms.
 
-## 三种使用形态
+## Three usage forms
 
-| 形态 | 说明 | 快速入口 |
-|------|------|----------|
-| **CLI** | 终端/脚本直接搜索/识图/转写，stdout 输出 JSON / 文本 | `agent-scout "查询" --limit 3` |
-| **MCP server** | 接入 Cursor / Claude Desktop / 任意 MCP host | `agent-scout --mcp` |
-| **Agent Skill** | 供 AI agent（Codex / InsCode 等）自动调用 | `skills/agent-scout-search/` |
+| Form | Description | Quick entry |
+|------|-------------|-------------|
+| **CLI** | Search / caption / transcribe / code-search directly from terminal or scripts; stdout emits JSON / text | `agent-scout "query" --limit 3` |
+| **MCP server** | Plug into Cursor / Claude Desktop / any MCP host | `agent-scout --mcp` |
+| **Agent Skill** | For AI agents (Codex / InsCode, etc.) to call automatically | `skills/agent-scout-search/` |
 
-> 📖 快速上手请看 **[QUICKSTART.md](QUICKSTART.md)**。
+> 📖 For a quick start, see **[QUICKSTART.md](QUICKSTART.md)**.
 
-## 开箱即用
+## Works out of the box
 
-从拿到二进制到完成首次搜索，**无需任何配置**：
+From downloading the binary to your first search, **no configuration required**:
 
-1. **下载/构建** 单个可执行文件（无 Node 运行时、无依赖安装）
-2. **运行** `agent-scout "查询"` / `agent-scout caption 图片` / `agent-scout transcribe 音频` —— 自动识别本机 Devin/Windsurf 登录凭证
-3. **完成** 直接返回 JSON 搜索结果 / 图片描述 / 转写文本
+1. **Download/build** a single executable (no Node runtime, no dependency installation)
+2. **Run** `agent-scout "query"` / `agent-scout caption image` / `agent-scout transcribe audio` — automatically detects your local Devin/Windsurf login credentials
+3. **Done** — JSON search results / image description / transcribed text are returned directly
 
-**最快方式：一键安装**（从 GitHub Releases 下载最新版二进制，无需 Rust 工具链）：
+**Fastest way: one-line install** (downloads the latest release binary from GitHub Releases; no Rust toolchain needed):
 
 ```bash
 AGENT_SCOUT_REPO=tasselx/agent-scout curl -fsSL \
   https://raw.githubusercontent.com/tasselx/agent-scout/main/install.sh | bash
 ```
 
-脚本会自动检测当前平台/架构，下载对应二进制到 `~/.local/bin`（可用
-`AGENT_SCOUT_PREFIX` 覆盖目录），并把 PATH 提示打印出来。也可以本地直接跑
-`./install.sh`（详见脚本头部注释）。发布产物均附带 `SHA256SUMS` 校验和，
-可在 Releases 页核对。
+The script auto-detects platform/arch, installs the binary to `~/.local/bin` (override with
+`AGENT_SCOUT_PREFIX`), and prints PATH instructions. You can also run `./install.sh` directly
+(see the header comments). Release artifacts ship with `SHA256SUMS` checksums for verification
+on the Releases page.
 
-零配置流程示意：
+Zero-config flow:
 
 ```
-agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索 / 识图 / 转写 ──▶ JSON hits / 描述 / 转写文本
-    无需 API key 配置        零手动步骤           自动重试多 host
+agent-scout binary ──▶ auto-extract local key ──▶ server-side search / caption / transcribe / code search ──▶ JSON hits / description / transcript / file ranges
+    no API key config         zero manual steps            multi-host auto retry
 ```
 
-三种形态（CLI / MCP / Skill）都遵循同一零配置原则：只要本机登录过 Devin/Windsurf，即可直接使用。
+All three forms (CLI / MCP / Skill) follow the same zero-config principle: as long as you have logged into Devin/Windsurf locally, it works directly.
 
-## 功能特性
+## Features
 
-- 🔍 **Web 搜索**：`GetWebSearchResults` 服务端搜索，返回 `{title, url, snippet, source}` 结构化结果
-- 🖼️ **识图（image caption）**：`GetImageCaption` 服务端视觉分析，描述图片或回答关于图片的问题
-- 🎙️ **音频转写（transcribe）**：`GetTranscription` 服务端语音转文字（Whisper），格式自动检测（wav/mp3/ogg/opus/webm/m4a/flac）
-- 🎯 **域名过滤**：`--domain` 限定搜索范围（如 `github.com`）
-- 🪄 **零配置认证**：自动识别本机 Devin/Windsurf 登录 key，无需手动配置
-- 🧩 **MCP server**：`--mcp` 以 stdio 运行，支持 `Content-Length` + NDJSON 双帧协议
-- 🧠 **Agent Skill**：附带 `agent-scout-search` skill 供 agent 调用
-- 📝 **错误日志**：按天分文件记录，超期自动清理
-- 🚀 **纯 Rust**：跨平台、零 Node 运行时依赖，单二进制分发
+- 🔍 **Web search**: `GetWebSearchResults` server-side search returning structured `{title, url, snippet, source}` results
+- 🖼️ **Image caption**: `GetImageCaption` server-side vision analysis — describe an image or answer questions about it
+- 🎙️ **Audio transcription**: `GetTranscription` server-side speech-to-text (Whisper), auto-detected formats (wav/mp3/ogg/opus/webm/m4a/flac)
+- 🤖 **AI code search (fast-context)**: `GetDevstralStream` semantic search over a local codebase — natural-language query → relevant file paths + line ranges + grep keywords
+- 🎯 **Domain filtering**: `--domain` restricts search scope (e.g. `github.com`)
+- 🪄 **Zero-config auth**: automatically detects the local Devin/Windsurf login key, no manual config
+- 🧩 **MCP server**: `--mcp` runs over stdio, supporting both `Content-Length` + NDJSON framing
+- 🧠 **Agent Skill**: ships the `agent-scout-search` skill for agents
+- 📝 **Error logs**: per-day log files with automatic cleanup of stale entries
+- 🚀 **Pure Rust**: cross-platform, zero Node runtime dependency, single-binary distribution
 
-## 结构
+## Structure
 
 ```
 src/
-  search.rs     核心搜索：请求体构造、HTTP 调用（多 host 重试）、结果归一化
-  caption.rs    识图：GetImageCaption 请求体构造、HTTP 调用（多 host 重试）、base64 读取/mime 猜测
-  transcribe.rs 转写：GetTranscription 请求体构造、HTTP 调用（多 host 重试）、base64 读取
-  auth.rs       API key 解析（CLI → env → key 文件 → 本地自动发现）、config 读写
-  log.rs        错误/信息日志（按天分文件，自动清理旧日志）
-  mcp.rs        MCP stdio server（NDJSON + Content-Length 双帧协议，web_search + image_caption + audio_transcribe 工具）
-  main.rs       CLI 入口（查询 + caption + transcribe + config 子命令 + --mcp）
+  search.rs     core search: request building, HTTP calls (multi-host retry), result normalization
+  caption.rs    image caption: GetImageCaption request building, HTTP calls (multi-host retry), base64/mime
+  transcribe.rs transcription: GetTranscription request building, HTTP calls (multi-host retry), base64
+  auth.rs       API key resolution (CLI → env → key file → local auto-discovery), config read/write
+  log.rs        error/info logs (per-day files, automatic cleanup of old logs)
+  mcp.rs        MCP stdio server (NDJSON + Content-Length framing; web_search + image_caption + audio_transcribe tools)
+  main.rs       CLI entry (search + caption + transcribe + config subcommands + --mcp)
+  fastcontext/  AI semantic code search (fast-context): Devstral protocol client, executor, search loop
 skills/
-  agent-scout-search/  供 agent 调用的 web 搜索 + 识图 + 转写 skill（SKILL.md + openai.yaml）
+  agent-scout-search/  web search + caption + transcribe skill for agents (SKILL.md + openai.yaml)
 tests/
-  search_live.rs  集成测试：本地 mock HTTP 验证 search() 成功路径
+  search_live.rs  integration test: local mock HTTP verifying the search() success path
 ```
 
-## 构建 & 测试
+## Build & test
 
 ```bash
-cargo build --release                       # 生成 target/release/agent-scout
-cargo test                                  # 29 单元测试 + 3 集成测试
+cargo build --release                       # produces target/release/agent-scout
+cargo test                                  # unit tests + integration tests
 ```
 
-## Release 下载
+## Release downloads
 
-三平台预编译二进制随 **GitHub Releases** 发布，免构建直接下载使用：
+Prebuilt binaries for three platforms are published with **GitHub Releases** — download and use directly without building:
 
-- **macOS** (arm64 / x86_64)：`agent-scout-macos-aarch64` / `agent-scout-macos-x86_64`
-- **Linux** (x86_64 / aarch64)：`agent-scout-linux-x86_64` / `agent-scout-linux-aarch64`
-- **Windows** (x86_64)：`agent-scout-windows-x86_64.exe`
+- **macOS** (arm64 / x86_64): `agent-scout-macos-aarch64` / `agent-scout-macos-x86_64`
+- **Linux** (x86_64 / aarch64): `agent-scout-linux-x86_64` / `agent-scout-linux-aarch64`
+- **Windows** (x86_64): `agent-scout-windows-x86_64.exe`
 
-> 发布入口见仓库 **Releases** 页；每个 Release 附带 `SHA256SUMS` 校验和文件，
-> 下载后可自行 `shasum -a 256 -c SHA256SUMS` 校验。
-> 也可用项目内 `build-release.sh` 本地打包（同样生成校验和）。
-> 打包细节见 [`.github/workflows/release.yml`](.github/workflows/release.yml)。
+> See the **Releases** page for the entry point; every Release ships a `SHA256SUMS` checksum file —
+> verify locally with `shasum -a 256 -c SHA256SUMS` after downloading.
+> You can also package locally with `build-release.sh` (also generates checksums).
+> Packaging details: [`.github/workflows/release.yml`](.github/workflows/release.yml).
 
-## 安装到 PATH（激活）
+## Installing to PATH (activation)
 
-编译后可用以下任一方式把 `agent-scout` 激活到 PATH，实现全局直接调用。
+After building, use any of the following to activate `agent-scout` on your PATH for global invocation.
 
-**方式 1：`cargo install`（推荐，自动装到 `~/.cargo/bin`）**
+**Option 1: `cargo install` (recommended; installs to `~/.cargo/bin`)**
 
 ```bash
-cd /path/to/agent-scout        # 先进入项目目录（--path . 指向当前目录）
+cd /path/to/agent-scout        # enter the project directory first (--path . points at the current dir)
 cargo install --path . --root "$HOME/.cargo"
-# 之后可直接调用（~/.cargo/bin 通常已在 PATH）
+# then call directly (~/.cargo/bin is usually on PATH)
 agent-scout "some query" --limit 3
 ```
 
-> 提示：`--path .` 的 `.` 是当前目录，必须先在项目目录下执行；
-> 或用绝对路径 `cargo install --path /path/to/agent-scout --root "$HOME/.cargo"` 免去 `cd`。
+> Tip: the `.` in `--path .` is the current directory — you must run this inside the project directory;
+> or use an absolute path `cargo install --path /path/to/agent-scout --root "$HOME/.cargo"` to skip the `cd`.
 
-**方式 2：软链接到 PATH 目录**
+**Option 2: symlink into a PATH directory**
 
 ```bash
 ln -sf "$(pwd)/target/release/agent-scout" ~/.local/bin/agent-scout
-# 需确保 ~/.local/bin 在 PATH 中
+# ensure ~/.local/bin is on PATH
 ```
 
-**方式 3：key 通过环境变量激活（不依赖本机 Devin 登录）**
+**Option 3: activate via environment variable key (no local Devin login needed)**
 
 ```bash
 export WINDSURF_API_KEY='devin-session-token$...'
 agent-scout "some query"
-# 或单次使用：
+# or one-off:
 WINDSURF_API_KEY='devin-session-token$...' agent-scout "some query"
 ```
 
-### key 解析优先级
+### Key resolution priority
 
-`--api-key` → `WINDSURF_API_KEY` 环境变量 → key 文件 → 本地自动识别。
+`--api-key` → `WINDSURF_API_KEY` env var → key file → local auto-discovery.
 
-因此：安装了之后**通常零配置**直接可用（自动识别本机 Devin/Windsurf key）；
-如需在无登录的机器上使用，用环境变量或 `--api-key` 显式提供 key。
+So after installation it is **usually zero-config** (auto-detects the local Devin/Windsurf key);
+for machines without a login, provide a key explicitly via the environment variable or `--api-key`.
 
-## 使用
+## Usage
 
-> 以下用 `agent-scout` 表示已激活到 PATH 的命令；未激活时替换为 `target/release/agent-scout`。
+> Below, `agent-scout` refers to the command activated on PATH; if not activated, replace with `target/release/agent-scout`.
 
 ```bash
-# 查询（stdout 输出 JSON hits）—— 无需手动配置，自动发现本地 key
+# Search (stdout emits JSON hits) — no manual config, key auto-discovered locally
 agent-scout "tauri window drag region" --limit 5
 
-# 手动指定 key
+# Specify a key manually
 agent-scout "rust async" --limit 3 --api-key 'devin-session-token$...'
 
-# 运行 MCP stdio server（同样自动发现 key）
+# Run the MCP stdio server (key also auto-discovered)
 agent-scout --mcp
 
-# 识图：描述一张本地图片
+# Image caption: describe a local image
 agent-scout caption ~/Pictures/photo.png
 
-# 识图：针对图片提问
-agent-scout caption ~/Pictures/screen.png --question "这是什么 UI 框架的界面？"
+# Image caption: ask a question about the image
+agent-scout caption ~/Pictures/screen.png --question "Which UI framework is this?"
 
-# 识图：输出 JSON（便于脚本解析）
+# Image caption: output JSON (easier for scripts)
 agent-scout caption ~/Pictures/photo.png --json
 
-# 转写：将本地音频转成文字
+# Transcribe: convert local audio to text
 agent-scout transcribe ~/Recordings/meeting.wav
 
-# 转写：输出 JSON（便于脚本解析）
+# Transcribe: output JSON (easier for scripts)
 agent-scout transcribe ~/Recordings/meeting.mp3 --json
 
-# 配置 / 查看 / 测试 / 清除 api key
+# Manage / inspect / test / clear the api key
 agent-scout config set 'devin-session-token$...'
 agent-scout config show
 agent-scout config test 'connectivity check'
 agent-scout config clear
 ```
 
-### 管道与脚本化
+### Piping & scripting
 
-搜索结果本身是纯 JSON，可直接喂给 `jq` 等工具；识图/转写加 `--json` 后同样可脚本化解析：
+Search results are plain JSON, so they can be fed straight into `jq` and similar tools; caption/transcribe can be scripted too with `--json`:
 
 ```bash
-# 只取标题和链接
+# Titles and links only
 agent-scout "tauri" --limit 5 | jq '.hits[] | {title, url}'
 
-# 统计命中数
+# Count hits
 agent-scout "rust async" | jq '.hits | length'
 
-# 识图结果转 JSON 后取字段
+# Extract a caption field
 agent-scout caption ~/Pictures/photo.png --json | jq -r '.caption'
 
-# 转写结果转 JSON 后取字段
+# Extract a transcript field
 agent-scout transcribe ~/Recordings/meeting.wav --json | jq -r '.transcribedText'
 
-# 美化输出（缩进格式化，便于人读）
+# Pretty output (indented for human reading)
 agent-scout "tauri" --limit 5 --pretty
 agent-scout caption ~/Pictures/photo.png --json --pretty
 agent-scout transcribe ~/Recordings/meeting.wav --json --pretty
 
-# 输出到文件
+# Save to file
 agent-scout "tokio" --limit 10 > results.json
 ```
 
-> 提示：`--json` 只影响输出格式，不影响退出码；`--pretty` 仅对 JSON 输出生效（搜索默认即 JSON；识图/转写需配合 `--json`）。
-> 解析失败时 stderr 会给出诊断信息，stdout 保持纯净。
+> Tip: `--json` only changes the output format, not the exit code; `--pretty` applies to JSON output only (search is JSON by default; caption/transcribe need `--json`).
+> On parse failures, diagnostics go to stderr; stdout stays clean.
 
-### CLI 命令速查
+### CLI command reference
 
-| 命令 | 作用 |
-|------|------|
-| `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--pretty] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits（`--pretty` 美化输出） |
-| `agent-scout caption <图片路径> [--question "..." --mime m --json --pretty] [--api-key k]` | 识图：描述或分析本地图片，stdout 输出描述文本（`--json` 输出 `{"caption": "..."}`，`--pretty` 美化 JSON） |
-| `agent-scout transcribe <音频路径> [--timeout N --json --pretty] [--api-key k]` | 转写：语音转文字，stdout 输出转写文本（`--json` 输出 `{"transcribedText": "..."}`，`--pretty` 美化 JSON） |
-| `agent-scout --mcp` | 以 MCP stdio server 运行 |
-| `agent-scout config set [key]` | 保存 key（chmod 600）；无 key 时交互输入 |
-| `agent-scout config show` | 查看当前 key 状态（掩码显示） |
-| `agent-scout config test [query]` | 连通性测试（真实搜索验证 key） |
-| `agent-scout config clear` | 删除已保存的 key 文件 |
+| Command | Purpose |
+|---------|---------|
+| `agent-scout "<query>" [--limit N] [--domain d] [--mode m] [--pretty] [--api-key k]` | Web search; stdout emits JSON hits (`--pretty` beautifies) |
+| `agent-scout caption <image> [--question "..." --mime m --json --pretty] [--api-key k]` | Image caption: describe/analyze a local image (`--json` emits `{"caption": "..."}`, `--pretty` beautifies JSON) |
+| `agent-scout transcribe <audio> [--timeout N --json --pretty] [--api-key k]` | Transcription: speech-to-text (`--json` emits `{"transcribedText": "..."}`, `--pretty` beautifies JSON) |
+| `agent-scout fc <query> [--path DIR] [--turns N] [--depth N] [--max-results N] [--exclude a,b] [--json] [--api-key k]` | AI semantic code search over a local codebase (fast-context) |
+| `agent-scout --mcp` | Run as MCP stdio server |
+| `agent-scout config set [key]` | Save a key (chmod 600); interactive input when no key given |
+| `agent-scout config show` | Show current key status (masked) |
+| `agent-scout config test [query]` | Connectivity test (real search to verify the key) |
+| `agent-scout config clear` | Delete the saved key file |
 
-### 退出码
+### Exit codes
 
-`0` = 成功，`1` = 错误（如无凭证、上游 4xx/5xx），`2` = 用法错误。
-诊断信息走 stderr；搜索的 stdout 为纯 JSON，识图（`caption`）/转写（`transcribe`）的 stdout 为纯文本（加 `--json` 输出 JSON）。
+`0` = success, `1` = error (e.g. no credentials, upstream 4xx/5xx), `2` = usage error.
+Diagnostics go to stderr; search stdout is pure JSON, caption/transcribe stdout is plain text (add `--json` for JSON).
 
-## 认证（零配置即用）
+## Fast context: AI semantic code search
 
-key 解析优先级：
+Beyond web search, `agent-scout` ships **fast-context** — an AI-driven semantic code search over a **local codebase**, powered by Windsurf's Devstral model (`GetDevstralStream`, the same reverse-engineered protocol family used by the other tools).
+
+Instead of matching keywords, it works like this:
+
+```
+your query + repo map (tree) + project summary
+        │
+        ▼
+Windsurf Devstral model (multi-turn tool-call loop)
+        │  generates rg / readfile / tree / ls / glob commands
+        ▼
+executed locally in parallel (with gitignore, path fallback, caching)
+        │  results fed back, repeated for N turns
+        ▼
+<ANSWER> XML → relevant file paths + line ranges + grep keywords
+```
+
+### CLI usage
+
+```bash
+agent-scout fc "where is the authentication logic?" --path /path/to/project
+```
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--path DIR` | current dir | Project root to search |
+| `--turns N` | 3 (1-5) | Search rounds; more = deeper but slower & more quota |
+| `--depth N` | 3 (1-6) | Repo-map tree depth; lower for huge monorepos, higher for small projects |
+| `--max-results N` | 10 (1-30) | Max files to return |
+| `--exclude a,b` | — | Dirs/patterns to exclude, e.g. `node_modules,dist,.git` |
+| `--json` | off | Emit structured JSON instead of the pretty text |
+| `--pretty` | off | Pretty-print the JSON output |
+| `--api-key k` | auto | Explicit key (overrides auto-detection) |
+
+Progress logs go to stderr (prefixed `[fc]`); results go to stdout. The pretty text output includes the matched **code snippets** (reusing files already read during search, so no extra IO), plus grep keywords and stats/config diagnostics:
+
+```
+The following code sections were retrieved:
+
+Path: /path/to/project/src/auth/handler.py
+Lines: L10-L60
+L10:class AuthHandler:
+L11:    def login(self, ...):
+...
+
+grep keywords: authenticate, jwt.*verify, session.*token
+
+[fast-context stats] commands_seen=15, commands_executed=15, commands_useful=13, ...
+[fast-context config] {"treeDepth":3,"treeSizeKB":3.8,"fellBack":false,...}
+```
+
+For scripting, use `--json` (e.g. `agent-scout fc "auth" --json | jq '.files[].path'`).
+
+### MCP tool
+
+`fast_context_search` is exposed by the MCP server (see [MCP tools](#mcp-tools)) with the same parameters: `query`, `project_path`, `tree_depth`, `max_turns`, `max_results`, `exclude_paths`. It returns the same pretty text (file paths + line ranges + code snippets + keywords + diagnostics).
+
+> Note: fast-context consumes Windsurf account quota (one model call per turn; 4 calls by default per query), so it is not meant for high-frequency batch use.
+
+## Authentication (zero-config)
+
+Key resolution priority:
 
 1. `--api-key <token>`
-2. `WINDSURF_API_KEY` / `WINDSURFAPI_CODEIUM_API_KEY` 环境变量
-3. key 文件（`~/.config/windsurf-search/api-key`、`~/.windsurf-search/api-key`、`~/.piwin/windsurf-api-key`）
-4. **本地安装自动提取**（新增）
+2. `WINDSURF_API_KEY` / `WINDSURFAPI_CODEIUM_API_KEY` environment variables
+3. Key file (`~/.config/windsurf-search/api-key`, `~/.windsurf-search/api-key`, `~/.piwin/windsurf-api-key`)
+4. **Local installation auto-extraction**
 
-只要本机用 Devin 或 Windsurf 登录过，第 4 层会自动从本地安装提取 key，无需任何手动配置。
+As long as you have logged into Devin or Windsurf locally, layer 4 auto-extracts the key from your local install — no manual configuration needed.
 
-key 形如 `devin-session-token$...`。
+Keys look like `devin-session-token$...`.
 
-### 自动提取来源
+### Auto-extraction sources
 
-按顺序查找以下来源，返回第一个有效 key：
+The following sources are checked in order; the first valid key wins:
 
-| 来源 | 类型 | 平台 | 路径 |
-|------|------|------|------|
-| Devin CLI 凭据 | TOML | Linux/WSL | `~/.local/share/devin/credentials.toml` |
+| Source | Type | Platform | Path |
+|--------|------|----------|------|
+| Devin CLI credentials | TOML | Linux/WSL | `~/.local/share/devin/credentials.toml` |
 | Devin `state.vscdb` | SQLite | macOS | `~/Library/Application Support/Devin/User/globalStorage/state.vscdb` |
 | Devin `state.vscdb` | SQLite | Windows | `%APPDATA%\Devin\User\globalStorage\state.vscdb` |
 | Devin `state.vscdb` | SQLite | Linux | `~/.config/Devin/User/globalStorage/state.vscdb` |
-| Deviv / Windsurf 同名位置 | SQLite | 全平台 | 兼容回退（历史 app 名） |
+| Devin / Windsurf same-named locations | SQLite | All | compatibility fallback (legacy app names) |
 
-提取逻辑：`state.vscdb` 读取 `ItemTable` 中 `windsurfAuthStatus` 记录的 `apiKey` 字段；
-`credentials.toml` 解析常见 key 字段（`api_key`/`access_token`/`token` 等），并回退匹配 `sk-` 前缀 token。
+Extraction logic: `state.vscdb` reads the `apiKey` field of the `windsurfAuthStatus` record in `ItemTable`;
+`credentials.toml` parses common key fields (`api_key`/`access_token`/`token`, etc.) and falls back to `sk-`-prefixed tokens.
 
-> 说明：key 只在内存中临时使用，不会写入磁盘；`config show` 只展示掩码。
+> Note: keys are used in memory only and never written to disk; `config show` displays a masked value.
 
-## MCP 工具
+## MCP tools
 
 `web_search`
 
-| arg | 类型 | 必填 | 说明 |
-|-----|------|------|------|
-| `query` | string | 是 | 搜索词 |
-| `limit` | number | 否 | 1–10，默认 5 |
-| `domain` | string | 否 | 域名过滤 |
-| `mode` | number | 否 | 上游模式 |
-| `pretty` | boolean | 否 | 美化输出 JSON（默认 false） |
+| arg | type | required | description |
+|-----|------|----------|-------------|
+| `query` | string | yes | Search query |
+| `limit` | number | no | 1–10, default 5 |
+| `domain` | string | no | Domain filter |
+| `mode` | number | no | Upstream mode |
+| `pretty` | boolean | no | Pretty-print JSON output (default false) |
 
-返回 MCP text content，JSON：`{ "hits": [ { "title", "url", "snippet", "source": "windsurf" } ] }`
+Returns MCP text content, JSON: `{ "hits": [ { "title", "url", "snippet", "source": "windsurf" } ] }`
 
 `image_caption`
 
-| arg | 类型 | 必填 | 说明 |
-|-----|------|------|------|
-| `image_path` | string | 是* | 本地图片文件路径（PNG/JPG/WebP/GIF） |
-| `image_base64` | string | 是* | 原始 base64 图片数据（可带 `data:` 前缀） |
-| `mime` | string | 否 | MIME 类型，如 `image/png`（默认按路径扩展名猜测） |
-| `question` | string | 否 | 关于图片的问题 / 指令 |
-| `pretty` | boolean | 否 | 美化输出 JSON（默认 false） |
+| arg | type | required | description |
+|-----|------|----------|-------------|
+| `image_path` | string | yes* | Local image path (PNG/JPG/WebP/GIF) |
+| `image_base64` | string | yes* | Raw base64 image data (`data:` prefix optional) |
+| `mime` | string | no | MIME type, e.g. `image/png` (default guessed from path extension) |
+| `question` | string | no | Question / instruction about the image |
+| `pretty` | boolean | no | Pretty-print JSON output (default false) |
 
-> `image_path` 与 `image_base64` 二选一，至少提供一个。
+> Provide either `image_path` or `image_base64` (at least one).
 
-返回 MCP text content，JSON：`{ "caption": "..." }`
+Returns MCP text content, JSON: `{ "caption": "..." }`
 
 `audio_transcribe`
 
-| arg | 类型 | 必填 | 说明 |
-|-----|------|------|------|
-| `audio_path` | string | 是* | 本地音频文件路径（wav/mp3/ogg/opus/webm/m4a/flac） |
-| `audio_base64` | string | 是* | 原始 base64 音频数据（可带 `data:` 前缀） |
-| `timeout` | number | 否 | 超时秒数（默认 60） |
-| `pretty` | boolean | 否 | 美化输出 JSON（默认 false） |
+| arg | type | required | description |
+|-----|------|----------|-------------|
+| `audio_path` | string | yes* | Local audio path (wav/mp3/ogg/opus/webm/m4a/flac) |
+| `audio_base64` | string | yes* | Raw base64 audio data (`data:` prefix optional) |
+| `timeout` | number | no | Timeout in seconds (default 60) |
+| `pretty` | boolean | no | Pretty-print JSON output (default false) |
 
-> `audio_path` 与 `audio_base64` 二选一，至少提供一个。格式由后端自动检测（Whisper）。
+> Provide either `audio_path` or `audio_base64` (at least one). Format is auto-detected by the backend (Whisper).
 
-返回 MCP text content，JSON：`{ "transcribedText": "..." }`
+Returns MCP text content, JSON: `{ "transcribedText": "..." }`
 
-支持两种 MCP 帧协议：`Content-Length`（官方 SDK 客户端）与 NDJSON（手写客户端）。
+`fast_context_search`
 
-## MCP 配置使用
+| arg | type | required | description |
+|-----|------|----------|-------------|
+| `query` | string | yes | Natural-language codebase search query |
+| `project_path` | string | no | Absolute path to the project root. Empty = current working directory. |
+| `tree_depth` | number | no | Directory tree depth for the repo map (1-6, default 3) |
+| `max_turns` | number | no | Search rounds (1-5, default 3) |
+| `max_results` | number | no | Max files to return (1-30, default 10) |
+| `exclude_paths` | array | no | Dirs/patterns to exclude from the repo map |
 
-MCP server 以 **stdio 子进程**方式运行（`agent-scout --mcp`），通过 stdin/stdout 与 MCP 客户端通信，无需占用端口。
+Returns text content with the relevant file paths, line ranges, code snippets, grep keywords, and stats/config diagnostics.
 
-> **通用 MCP 标准**：采用标准 Model Context Protocol（stdio 传输），凡是支持"stdio MCP server"的客户端均可接入——
-> Cursor、Claude Desktop、VS Code、Zed、Windsurf、自研 MCP host 等，理论上不受平台限制（macOS / Linux / Windows）。
+Two MCP framing protocols are supported: `Content-Length` (official SDK clients) and NDJSON (handwritten clients).
 
-### 通用配置（任意 MCP host）
+## MCP setup
 
-在客户端的 MCP 配置文件中加入：
+The MCP server runs as a **stdio subprocess** (`agent-scout --mcp`), communicating with the MCP client over stdin/stdout — no port needed.
+
+> **Generic MCP standard**: standard Model Context Protocol (stdio transport). Any client supporting "stdio MCP servers" works —
+> Cursor, Claude Desktop, VS Code, Zed, Windsurf, custom MCP hosts, etc., regardless of platform (macOS / Linux / Windows).
+
+### Generic config (any MCP host)
+
+Add to your client's MCP config file:
 
 ```json
 {
@@ -324,13 +405,13 @@ MCP server 以 **stdio 子进程**方式运行（`agent-scout --mcp`），通过
 }
 ```
 
-> **两种 `command` 写法**：
-> - `"agent-scout"`：已通过 `cargo install` 等激活到 PATH 时最省事（见上文「安装到 PATH」）；
-> - 绝对路径：未激活 PATH 时用（如 `/Users/you/agent-scout/target/release/agent-scout`）。
+> **Two `command` forms**:
+> - `"agent-scout"`: easiest when activated on PATH via `cargo install` etc. (see "Installing to PATH" above);
+> - absolute path: when not on PATH (e.g. `/Users/you/agent-scout/target/release/agent-scout`).
 
-### 各客户端配置示例
+### Per-client examples
 
-**VS Code / Cursor**（`.vscode/mcp.json` 或设置中的 MCP 配置）：
+**VS Code / Cursor** (`.vscode/mcp.json` or the MCP config in settings):
 
 ```json
 {
@@ -344,7 +425,7 @@ MCP server 以 **stdio 子进程**方式运行（`agent-scout --mcp`），通过
 }
 ```
 
-**Claude Desktop**（`claude_desktop_config.json`）：
+**Claude Desktop** (`claude_desktop_config.json`):
 
 ```json
 {
@@ -357,11 +438,11 @@ MCP server 以 **stdio 子进程**方式运行（`agent-scout --mcp`），通过
 }
 ```
 
-### 认证说明
+### Auth notes
 
-**无需配置 key**——只要本机用过 Devin/Windsurf 登录，MCP server 会自动识别并提取 key（见上文「认证」章节）。
+**No key config needed** — as long as you have logged into Devin/Windsurf locally, the MCP server auto-detects and extracts the key (see "Authentication" above).
 
-如需显式指定 key，可通过环境变量注入：
+To specify a key explicitly, inject it via the environment:
 
 ```json
 {
@@ -377,50 +458,50 @@ MCP server 以 **stdio 子进程**方式运行（`agent-scout --mcp`），通过
 }
 ```
 
-配置完成后重启 MCP 客户端，即可在对话中调用 `web_search` / `image_caption` / `audio_transcribe` 工具。
+After configuring, restart your MCP client — you can then call the `web_search` / `image_caption` / `audio_transcribe` / `fast_context_search` tools in conversation.
 
-## Skills 使用
+## Skills usage
 
-仓库附带一个规范 skill，供 AI agent 通过 skill 直接调用 web 搜索、识图与转写：
+The repo ships a standard skill for AI agents to call web search, image caption, and transcription directly:
 
 ```
 skills/agent-scout-search/
-├── SKILL.md           # 使用指引（frontmatter + 步骤，含搜索、识图与转写）
-└── agents/openai.yaml # UI 元数据
+├── SKILL.md           # usage guide (frontmatter + steps; search, caption & transcribe)
+└── agents/openai.yaml # UI metadata
 ```
 
-- **skill 名**：`agent-scout-search`
-- **功能**：按 SKILL.md 指引，用 `agent-scout` 执行搜索并解析 JSON hits、用 `agent-scout caption` 描述/分析本地图片、或用 `agent-scout transcribe` 转写本地音频
-- **通用标准**：采用标准 Agent Skill 规范（`SKILL.md` + YAML frontmatter），理论上支持任何按此规范加载 skills 的 agent——
-  InsCode、Codex、以及兼容该规范的其他 agent 框架，不受平台限制。
+- **skill name**: `agent-scout-search`
+- **what it does**: per SKILL.md, run `agent-scout` for search and parse JSON hits, `agent-scout caption` to describe/analyze local images, or `agent-scout transcribe` for local audio
+- **standard**: follows the Agent Skill spec (`SKILL.md` + YAML frontmatter), theoretically compatible with any agent that loads skills this way —
+  InsCode, Codex, and other compliant frameworks, regardless of platform.
 
-### 安装到 agent 的 skills 目录
+### Install into an agent's skills directory
 
-方式 A：软链接到 InsCode 全局 skills（自动发现）：
+Option A: symlink into InsCode global skills (auto-discovered):
 
 ```bash
 ln -sfn "$(pwd)/skills/agent-scout-search" ~/.config/inscode/skills/agent-scout-search
 ```
 
-方式 B：复制/链接到 Codex skills 目录：
+Option B: copy/link into the Codex skills directory:
 
 ```bash
 mkdir -p ~/.codex/skills
 ln -sfn "$(pwd)/skills/agent-scout-search" ~/.codex/skills/agent-scout-search
 ```
 
-安装后，agent 在需要联网搜索时会自动匹配 `agent-scout-search` skill 并按其指引执行。
+After installation, agents auto-match the `agent-scout-search` skill when they need web search and follow its instructions.
 
-## 安全说明
+## Security notes
 
-- 不要提交真实 token。
-- session token 会过期，返回 401 时重新 `config set`。
-- 自动提取的 key 是本机明文存储的敏感凭证，仅在内存使用，不落盘、不打印完整值。
-- 非 Windsurf/Devin 官方产品。
+- Never commit real tokens.
+- Session tokens expire — on a 401, re-run `config set`.
+- Auto-extracted keys are sensitive plaintext credentials stored locally; used in memory only, never persisted to disk, never printed in full.
+- Not an official Windsurf/Devin product.
 
-## 示例输出
+## Example output
 
-一次 `agent-scout "rust async" --limit 2` 的 stdout 输出形如：
+A `agent-scout "rust async" --limit 2` run emits stdout like:
 
 ```json
 {
@@ -435,42 +516,48 @@ ln -sfn "$(pwd)/skills/agent-scout-search" ~/.codex/skills/agent-scout-search
 }
 ```
 
-> 提示：配合 `jq` 可以快速取字段，如 `agent-scout "query" | jq '.hits[].url'`。
+> Tip: pair with `jq` to extract fields quickly, e.g. `agent-scout "query" | jq '.hits[].url'`.
 
-一次 `agent-scout caption ~/Pictures/screen.png --question "这个界面用了什么框架？"` 的 stdout 输出形如：
-
-```text
-界面采用了 React 与 Tailwind CSS 构建，左侧为侧边导航栏，顶部为搜索栏，
-主体区域是一个数据表格，包含用户列表及其状态标签。
-```
-
-识图输出为纯文本描述（无 JSON 包裹），便于直接拼入对话；如需脚本解析，加 `--json` 得到 `{"caption": "..."}`。
-
-一次 `agent-scout transcribe ~/Recordings/meeting.wav` 的 stdout 输出形如：
+A `agent-scout caption ~/Pictures/screen.png --question "Which UI framework is this?"` run emits stdout like:
 
 ```text
-好的，会议开始。首先回顾一下上周的进展……
+The interface is built with React and Tailwind CSS, with a left sidebar navigation,
+a search bar at the top, and a data table in the main area showing a user list with status labels.
 ```
 
-转写输出为纯文本（无 JSON 包裹）；如需脚本解析，加 `--json` 得到 `{"transcribedText": "..."}`。
+Caption output is plain text (no JSON wrapper) for easy inline use; add `--json` for `{"caption": "..."}` when scripting.
 
-## 错误日志
+A `agent-scout transcribe ~/Recordings/meeting.wav` run emits stdout like:
 
-每次运行会在 `~/.config/windsurf-search/logs/agent-scout-YYYY-MM-DD.log` 写入日志：
+```text
+OK, the meeting begins. First, let's review last week's progress...
+```
 
-- 读取 key 失败、搜索/识图/转写失败、config 出错 → `[ERROR]`
-- 搜索/识图/转写成功 → `[INFO]`
-- **自动清理**：每次写入时删除超过 7 天的旧日志，并最多保留 30 个文件
+Transcript output is plain text (no JSON wrapper); add `--json` for `{"transcribedText": "..."}` when scripting.
+
+## Error logs
+
+Each run writes to `~/.config/windsurf-search/logs/agent-scout-YYYY-MM-DD.log`:
+
+- Key read failures, search/caption/transcribe failures, config errors → `[ERROR]`
+- Successful search/caption/transcribe → `[INFO]`
+- **Auto cleanup**: on each write, logs older than 7 days are deleted, keeping at most 30 files
 
 ```bash
-tail -f ~/.config/windsurf-search/logs/*.log   # 实时查看
+tail -f ~/.config/windsurf-search/logs/*.log   # watch in real time
 ```
 
-## 致谢
+## Acknowledgements
 
-本项目参考了开源项目 **[windsurf-search-mcp](https://github.com/mimimaster/windsurf-search-mcp)**（Node.js 实现），
-核心逻辑在此基础上用 Rust 重写，并对认证、日志、Skill 等能力做了增强。
+This project is based on the open-source project **[windsurf-search-mcp](https://github.com/mimimaster/windsurf-search-mcp)** (Node.js implementation),
+whose core logic was rewritten in Rust, with enhancements to auth, logging, and the skill.
+
+The `fast-context` (AI semantic code search) capability is based on the open-source project
+**[fast-context-mcp](https://github.com/SammySnake-d/fast-context-mcp)** (Node.js reverse-engineering of the Windsurf Devstral
+protocol), rewritten natively in Rust, with added engineering enhancements such as command-shape normalization, path fallback,
+gitignore support, command caching & stats, Chinese query hints, and empty-answer auto retry.
 
 ## License
 
 MIT
+

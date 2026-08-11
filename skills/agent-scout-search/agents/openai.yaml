@@ -1,10 +1,12 @@
-display_name: agent-scout Search, Vision & Transcription
+display_name: agent-scout Search, Vision, Transcription & Code Search
 short_description: >-
-  Web search, image captioning, and audio transcription via the agent-scout
-  tool (server-side Windsurf/Devin backend), zero-config with auto-discovered
-  credentials.
+  Web search, image captioning, audio transcription, and AI semantic code
+  search via the agent-scout tool (server-side Windsurf/Devin backend),
+  zero-config with auto-discovered credentials.
 default_prompt: >-
   Use agent-scout-search to look up current web facts, documentation, or
   research with `agent-scout "query"`, to describe or analyze a local image
-  with `agent-scout caption <image-path> [--question "..."]`, and to transcribe
-  a local audio file with `agent-scout transcribe <audio-path>`.
+  with `agent-scout caption <image-path> [--question "..."]`, to transcribe
+  a local audio file with `agent-scout transcribe <audio-path>`, and to find
+  relevant files and line ranges in a local codebase with
+  `agent-scout fc "natural language query" [--path <project-root>]`.

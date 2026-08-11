@@ -24,6 +24,8 @@ fn print_usage(stream: &mut dyn Write) {
           \x20 agent-scout <query> [--limit N] [--domain d] [--mode m] [--api-key k]\n\
           \x20 agent-scout caption <image-path> [--question \"...\"] [--mime m] [--json] [--api-key k]\n\
           \x20 agent-scout transcribe <audio-path> [--timeout N] [--json] [--api-key k]\n\
+          \x20 agent-scout fc <query> [--path DIR] [--turns N] [--depth N] [--max-results N]\n\
+          \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20 [--exclude a,b] [--json] [--api-key k]   (AI semantic code search)\n\
           \x20 agent-scout --mcp                 (run as MCP stdio server)\n\
           \x20 agent-scout config set [key]      (save a key to ~/.config/windsurf-search/api-key, chmod 600)\n\
           \x20 agent-scout config show           (show saved key status, masked)\n\
@@ -45,7 +47,8 @@ fn parse_args(argv: &[String]) -> Args {
         let token = &argv[i];
         if token == "--limit" || token == "--domain" || token == "--mode"
             || token == "--api-key" || token == "--question" || token == "--mime"
-            || token == "--timeout" {
+            || token == "--timeout" || token == "--path" || token == "--turns"
+            || token == "--depth" || token == "--max-results" || token == "--exclude" {
             flags.insert(token[2..].to_string(), argv.get(i + 1).cloned());
             i += 2;
         } else if let Some(rest) = token.strip_prefix("--") {
@@ -283,6 +286,95 @@ fn run_transcribe(
     }
 }
 
+fn run_fc(
+    positionals: &[String],
+    flags: &std::collections::HashMap<String, Option<String>>,
+    home: &std::path::Path,
+) -> i32 {
+    let query = positionals.join(" ");
+    if query.trim().is_empty() {
+        eprintln!("agent-scout fc: query is required");
+        return 2;
+    }
+    let cli_key = flags.get("api-key").cloned().flatten().unwrap_or_default();
+
+    let mut opts = agent_scout::fastcontext::SearchOptions::default();
+    opts.query = query;
+    if let Some(p) = flags.get("path").cloned().flatten() {
+        if !p.is_empty() {
+            opts.project_root = std::path::PathBuf::from(p);
+        }
+    }
+    if let Some(n) = flags.get("turns").cloned().flatten() {
+        if let Ok(v) = n.parse::<u8>() {
+            if (1..=5).contains(&v) {
+                opts.max_turns = v;
+            }
+        }
+    }
+    if let Some(n) = flags.get("depth").cloned().flatten() {
+        if let Ok(v) = n.parse::<u8>() {
+            if (1..=6).contains(&v) {
+                opts.tree_depth = v;
+            }
+        }
+    }
+    if let Some(n) = flags.get("max-results").cloned().flatten() {
+        if let Ok(v) = n.parse::<u8>() {
+            if (1..=30).contains(&v) {
+                opts.max_results = v;
+            }
+        }
+    }
+    if let Some(e) = flags.get("exclude").cloned().flatten() {
+        if !e.is_empty() {
+            opts.exclude_paths = e.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        }
+    }
+    if !cli_key.is_empty() {
+        opts.api_key = Some(cli_key);
+    }
+
+    if !opts.project_root.is_dir() {
+        eprintln!("agent-scout fc: project path does not exist: {}", opts.project_root.display());
+        return 2;
+    }
+
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("agent-scout fc: 无法创建异步运行时: {}", e);
+            return 1;
+        }
+    };
+    let result = runtime.block_on(agent_scout::fastcontext::search::search(opts.clone()));
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("agent-scout fc: {}", e);
+            agent_scout::log::log_error(home, &format!("fastcontext failed: query={:?} error={}", opts.query, e));
+            return 1;
+        }
+    };
+
+    let as_json = flags.contains_key("json");
+    let pretty = flags.contains_key("pretty");
+    if as_json {
+        let payload = agent_scout::fastcontext::search::search_result_json(&result, &opts);
+        if pretty {
+            println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
+        } else {
+            println!("{}", payload);
+        }
+    } else {
+        let text = agent_scout::fastcontext::search::format_result(&result, &opts);
+        println!("{}", text);
+    }
+
+    agent_scout::log::log_info(home, &format!("fastcontext success: query={:?}", opts.query));
+    0
+}
+
 pub fn main_entry() -> i32 {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = parse_args(&argv);
@@ -318,6 +410,12 @@ pub fn main_entry() -> i32 {
 
     if args.positionals.first().map(String::as_str) == Some("transcribe") {
         return run_transcribe(&args.positionals[1..], &args.flags, &home);
+    }
+
+    if args.positionals.first().map(String::as_str) == Some("fc")
+        || args.positionals.first().map(String::as_str) == Some("fastcontext")
+    {
+        return run_fc(&args.positionals[1..], &args.flags, &home);
     }
 
     if args.positionals.is_empty() {

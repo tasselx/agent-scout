@@ -3,6 +3,7 @@
 
 pub mod auth;
 pub mod caption;
+pub mod fastcontext;
 pub mod log;
 pub mod mcp;
 pub mod search;
