@@ -234,7 +234,52 @@ grep keywords: authenticate, jwt.*verify, session.*token
 [fast-context config] {"treeDepth":3,"treeSizeKB":3.8,"fellBack":false,...}
 ```
 
-The same capability is exposed as the `fast_context_search` MCP tool (see section 4). Zero-config applies here too — the local Devin/Windsurf key is auto-detected.
+For scripting, use `--json`:
+
+```bash
+# Extract the matched file paths
+$BIN fc "auth" --path . --json | jq '.files[].path'
+
+# Inspect the first hit (path + ranges)
+$BIN fc "auth" --path . --json | jq '.files[0]'
+
+# Pretty-printed JSON
+$BIN fc "auth" --path . --json --pretty
+
+# Feed the rg keywords back into a real grep
+$BIN fc "auth" --path . --json | jq -r '.rg_patterns[]' | while read -r p; do rg "$p" src; done
+```
+
+Example `--json` payload:
+
+```json
+{
+  "files": [
+    { "path": "src/auth/handler.py", "full_path": "/proj/src/auth/handler.py", "ranges": [[10, 60], [120, 180]] },
+    { "path": "src/middleware/jwt.py", "full_path": "/proj/src/middleware/jwt.py", "ranges": [[1, 40]] }
+  ],
+  "rg_patterns": ["authenticate", "jwt.*verify", "session.*token"],
+  "stats": { "commandsSeen": 15, "commandsUseful": 13, "commandsInvalid": 0, "cacheHits": 0 },
+  "meta": { "treeDepth": 3, "treeSizeKB": 3.8, "fellBack": false }
+}
+```
+
+The same capability is exposed as the `fast_context_search` MCP tool (see section 4) — e.g. with `project_path` pointing at the repo root, `max_turns`/`max_results` tuning the depth, and `exclude_paths` skipping heavy dirs:
+
+```json
+{
+  "name": "fast_context_search",
+  "arguments": {
+    "query": "where is the database pool initialized",
+    "project_path": "/path/to/project",
+    "max_turns": 3,
+    "max_results": 10,
+    "exclude_paths": ["node_modules", "dist", "target"]
+  }
+}
+```
+
+Zero-config applies here too — the local Devin/Windsurf key is auto-detected.
 
 > Note: fast-context consumes Windsurf account quota (one model call per turn; 4 calls by default per query), so it is not meant for high-frequency batch use.
 

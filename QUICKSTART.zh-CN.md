@@ -240,7 +240,52 @@ grep keywords: authenticate, jwt.*verify, session.*token
 [fast-context config] {"treeDepth":3,"treeSizeKB":3.8,"fellBack":false,...}
 ```
 
-同样的能力也以 `fast_context_search` MCP 工具形式提供（见第 4 节）。这里同样零配置——本机 Devin/Windsurf key 自动识别。
+脚本化可用 `--json`：
+
+```bash
+# 提取命中的文件路径
+$BIN fc "auth" --path . --json | jq '.files[].path'
+
+# 查看第一个命中（路径 + 行号范围）
+$BIN fc "auth" --path . --json | jq '.files[0]'
+
+# 美化 JSON 输出
+$BIN fc "auth" --path . --json --pretty
+
+# 把 rg 关键词回灌到真实 grep
+$BIN fc "auth" --path . --json | jq -r '.rg_patterns[]' | while read -r p; do rg "$p" src; done
+```
+
+`--json` 输出示例：
+
+```json
+{
+  "files": [
+    { "path": "src/auth/handler.py", "full_path": "/proj/src/auth/handler.py", "ranges": [[10, 60], [120, 180]] },
+    { "path": "src/middleware/jwt.py", "full_path": "/proj/src/middleware/jwt.py", "ranges": [[1, 40]] }
+  ],
+  "rg_patterns": ["authenticate", "jwt.*verify", "session.*token"],
+  "stats": { "commandsSeen": 15, "commandsUseful": 13, "commandsInvalid": 0, "cacheHits": 0 },
+  "meta": { "treeDepth": 3, "treeSizeKB": 3.8, "fellBack": false }
+}
+```
+
+同样的能力也以 `fast_context_search` MCP 工具形式提供（见第 4 节）——`project_path` 指向仓库根目录，`max_turns`/`max_results` 控制搜索深度，`exclude_paths` 跳过重目录：
+
+```json
+{
+  "name": "fast_context_search",
+  "arguments": {
+    "query": "数据库连接池在哪里初始化",
+    "project_path": "/path/to/project",
+    "max_turns": 3,
+    "max_results": 10,
+    "exclude_paths": ["node_modules", "dist", "target"]
+  }
+}
+```
+
+这里同样零配置——本机 Devin/Windsurf key 自动识别。
 
 > 注意：fast-context 会消耗 Windsurf 账户配额（每轮一次模型调用，默认每查询 4 次），不适合高频批量调用。
 

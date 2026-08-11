@@ -256,7 +256,21 @@ executed locally in parallel (with gitignore, path fallback, caching)
 ### CLI usage
 
 ```bash
-agent-scout fc "where is the authentication logic?" --path /path/to/project
+# Search the current directory
+agent-scout fc "where is the authentication logic?"
+
+# Search a specific project root
+agent-scout fc "how is the config loaded" --path /path/to/project
+
+# Deeper search with more results, excluding heavy dirs
+agent-scout fc "database connection pool" --path . --turns 4 --max-results 15 \
+  --exclude node_modules,dist,target
+
+# Shallow quick lookup (1 turn, few files)
+agent-scout fc "error handling" --path . --turns 1 --max-results 3
+
+# Explicit key (overrides auto-detection)
+agent-scout fc "auth" --path . --api-key 'devin-session-token$...'
 ```
 
 Flags:
@@ -289,11 +303,62 @@ grep keywords: authenticate, jwt.*verify, session.*token
 [fast-context config] {"treeDepth":3,"treeSizeKB":3.8,"fellBack":false,...}
 ```
 
-For scripting, use `--json` (e.g. `agent-scout fc "auth" --json | jq '.files[].path'`).
+For scripting, use `--json`:
+
+```bash
+# Structured JSON output
+agent-scout fc "auth" --path . --json | jq '.files[].path'
+
+# Extract the ranges of the first hit
+agent-scout fc "auth" --path . --json | jq '.files[0]'
+
+# Pretty-printed JSON
+agent-scout fc "auth" --path . --json --pretty
+
+# Combine with rg keywords from the result for a follow-up grep
+agent-scout fc "auth" --path . --json | jq -r '.rg_patterns[]' | head -5
+```
+
+Example `--json` payload:
+
+```json
+{
+  "files": [
+    { "path": "src/auth/handler.py", "full_path": "/proj/src/auth/handler.py", "ranges": [[10, 60], [120, 180]] },
+    { "path": "src/middleware/jwt.py", "full_path": "/proj/src/middleware/jwt.py", "ranges": [[1, 40]] }
+  ],
+  "rg_patterns": ["authenticate", "jwt.*verify", "session.*token"],
+  "stats": { "commandsSeen": 15, "commandsUseful": 13, "commandsInvalid": 0, "cacheHits": 0 },
+  "meta": { "treeDepth": 3, "treeSizeKB": 3.8, "fellBack": false }
+}
+```
 
 ### MCP tool
 
 `fast_context_search` is exposed by the MCP server (see [MCP tools](#mcp-tools)) with the same parameters: `query`, `project_path`, `tree_depth`, `max_turns`, `max_results`, `exclude_paths`. It returns the same pretty text (file paths + line ranges + code snippets + keywords + diagnostics).
+
+Example JSON-RPC call (over stdio, `Content-Length` framing):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "fast_context_search",
+    "arguments": {
+      "query": "where is the database pool initialized",
+      "project_path": "/path/to/project",
+      "tree_depth": 3,
+      "max_turns": 3,
+      "max_results": 10,
+      "exclude_paths": ["node_modules", "dist", "target"]
+    }
+  }
+}
+```
+
+Response `content[0].text` is the same pretty text as the CLI output (file paths + line ranges + code snippets + grep keywords + `[fast-context stats]` / `[fast-context config]` lines).
 
 > Note: fast-context consumes Windsurf account quota (one model call per turn; 4 calls by default per query), so it is not meant for high-frequency batch use.
 

@@ -254,7 +254,21 @@ Windsurf Devstral 模型（多轮工具调用循环）
 ### CLI 用法
 
 ```bash
-agent-scout fc "认证逻辑在哪里？" --path /path/to/project
+# 搜索当前目录
+agent-scout fc "认证逻辑在哪里？"
+
+# 搜索指定项目根目录
+agent-scout fc "配置是如何加载的" --path /path/to/project
+
+# 更深搜索、更多结果、排除大目录
+agent-scout fc "数据库连接池" --path . --turns 4 --max-results 15 \
+  --exclude node_modules,dist,target
+
+# 浅层快速查询（1 轮、少量结果）
+agent-scout fc "错误处理" --path . --turns 1 --max-results 3
+
+# 显式指定 key（覆盖自动识别）
+agent-scout fc "auth" --path . --api-key 'devin-session-token$...'
 ```
 
 参数：
@@ -287,11 +301,62 @@ grep keywords: authenticate, jwt.*verify, session.*token
 [fast-context config] {"treeDepth":3,"treeSizeKB":3.8,"fellBack":false,...}
 ```
 
-脚本化可用 `--json`（如 `agent-scout fc "auth" --json | jq '.files[].path'`）。
+脚本化可用 `--json`：
+
+```bash
+# 结构化 JSON 输出
+agent-scout fc "auth" --path . --json | jq '.files[].path'
+
+# 提取第一个命中的行号范围
+agent-scout fc "auth" --path . --json | jq '.files[0]'
+
+# 美化 JSON 输出
+agent-scout fc "auth" --path . --json --pretty
+
+# 用结果里的 rg 关键词做后续 grep
+agent-scout fc "auth" --path . --json | jq -r '.rg_patterns[]' | head -5
+```
+
+`--json` 输出示例：
+
+```json
+{
+  "files": [
+    { "path": "src/auth/handler.py", "full_path": "/proj/src/auth/handler.py", "ranges": [[10, 60], [120, 180]] },
+    { "path": "src/middleware/jwt.py", "full_path": "/proj/src/middleware/jwt.py", "ranges": [[1, 40]] }
+  ],
+  "rg_patterns": ["authenticate", "jwt.*verify", "session.*token"],
+  "stats": { "commandsSeen": 15, "commandsUseful": 13, "commandsInvalid": 0, "cacheHits": 0 },
+  "meta": { "treeDepth": 3, "treeSizeKB": 3.8, "fellBack": false }
+}
+```
 
 ### MCP 工具
 
 MCP server 暴露 `fast_context_search` 工具（见 [MCP 工具](#mcp-工具)），参数相同：`query`、`project_path`、`tree_depth`、`max_turns`、`max_results`、`exclude_paths`，返回同样的 pretty 文本（文件路径 + 行号范围 + 代码片段 + 关键词 + 诊断）。
+
+JSON-RPC 调用示例（stdio + `Content-Length` 帧）：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "fast_context_search",
+    "arguments": {
+      "query": "数据库连接池在哪里初始化",
+      "project_path": "/path/to/project",
+      "tree_depth": 3,
+      "max_turns": 3,
+      "max_results": 10,
+      "exclude_paths": ["node_modules", "dist", "target"]
+    }
+  }
+}
+```
+
+响应 `content[0].text` 与 CLI 输出相同的 pretty 文本（文件路径 + 行号范围 + 代码片段 + grep 关键词 + `[fast-context stats]` / `[fast-context config]` 行）。
 
 > 注意：fast-context 会消耗 Windsurf 账户配额（每轮一次模型调用，默认每查询 4 次），不适合高频批量调用。
 
