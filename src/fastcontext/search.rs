@@ -1,4 +1,4 @@
-//! AI 驱动的语义代码搜索主循环（对齐 sanshu 的 fast_context 实现）。
+//! AI 驱动的语义代码搜索主循环。
 //!
 //! 主循环：repo map + 项目摘要 → Devstral 多轮 tool-call/result 交换 →
 //! 本地命令执行 → `<ANSWER>` XML 解析为文件路径 + 行号范围。
@@ -879,8 +879,7 @@ fn read_line_range(path: &Path, start: usize, end: usize) -> anyhow::Result<Stri
     Ok(extract_line_range(&content, start, end))
 }
 
-/// 把 SearchResult 格式化为 pretty 文本（对齐 sanshu 的 format_fast_context_text）：
-/// 包含命中文件的代码片段（优先用搜索期间 readfile 缓存，避免重复读盘）、
+/// 把 SearchResult 格式化为 pretty 文本（包含命中文件的代码片段（优先用搜索期间 readfile 缓存，避免重复读盘）、
 /// grep keywords、统计与 config 诊断。
 pub fn format_result(result: &SearchResult, opts: &SearchOptions) -> String {
     let root = PathBuf::from(&opts.project_root);

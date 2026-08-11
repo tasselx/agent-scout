@@ -1,4 +1,4 @@
-//! Fast Context — AI 驱动的语义代码搜索（对齐 sanshu 的 fast_context 实现）。
+//! Fast Context — AI 驱动的语义代码搜索。
 //!
 //! 通过 Windsurf Devstral 协议（GetDevstralStream / GetUserJwt /
 //! CheckUserMessageRateLimit）在本地代码库中做自然语言检索。

@@ -1,4 +1,4 @@
-//! Protobuf 编解码与 Connect-RPC 帧处理（对齐 sanshu 的 fast_context 实现）。
+//! Protobuf 编解码与 Connect-RPC 帧处理。
 //!
 //! 与 Windsurf 服务端线格式完全一致：varint / length-delimited 字段、
 //! Connect-RPC 帧（1 字节 flags + 4 字节大端长度 + payload，支持 gzip）。

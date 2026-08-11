@@ -9,7 +9,7 @@ All notable changes to this project are documented here.
 ### Added
 
 - **AI code search (fast-context)** — new `agent-scout fc` subcommand and `fast_context_search` MCP tool for natural-language semantic search over a local codebase, powered by Windsurf's Devstral model (`GetDevstralStream`).
-- **fast-context rewritten in Rust** — aligned with the sanshu implementation (async tokio + reqwest): multi-turn tool-call loop, command-shape normalization for malformed LLM arguments, path fallback to the nearest existing parent, gitignore support (`.gitignore` / `.codeiumignore` / `.windsurfignore` / `.devinignore`), command fingerprint caching + cross-turn duplicate detection, readfile content cache, SearchStats diagnostics.
+- **fast-context rewritten in Rust** — async Rust implementation (tokio + reqwest): multi-turn tool-call loop, command-shape normalization for malformed LLM arguments, path fallback to the nearest existing parent, gitignore support (`.gitignore` / `.codeiumignore` / `.windsurfignore` / `.devinignore`), command fingerprint caching + cross-turn duplicate detection, readfile content cache, SearchStats diagnostics.
 - **Pretty output** — `fc` text output now includes the matched code snippets (reusing files already read during search), plus grep keywords and stats/config diagnostics; `fc --json --pretty` pretty-prints structured JSON.
 - **Chinese query hints** — queries with >30% Chinese characters get a translation hint appended to the prompt.
 - **Empty-answer auto retry & unparsed-response retry** — the search loop recovers from empty `<ANSWER>` or malformed tool-call responses when turns remain.

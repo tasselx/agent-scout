@@ -1,4 +1,4 @@
-//! 本地工具执行器（对齐 sanshu 的 fast_context 实现）。
+//! 本地工具执行器。
 //!
 //! 执行 Devstral 模型生成的 restricted_exec 命令（rg/readfile/tree/ls/glob）：
 //! - 命令形状归一化：兼容 LLM 各种扁平/shorthand 畸形参数

@@ -1,4 +1,4 @@
-//! Connect-RPC unary/streaming HTTP 客户端（对齐 sanshu 的 fast_context 实现）。
+//! Connect-RPC unary/streaming HTTP 客户端。
 //!
 //! 包括：JWT 获取（内存缓存）、限流检查、unary/streaming 请求、
 //! 4xx 不重试 + 指数退避 jitter、metadata/请求构建。
