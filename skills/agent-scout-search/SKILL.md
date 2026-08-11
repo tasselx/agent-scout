@@ -1,22 +1,24 @@
 ---
 name: agent-scout-search
 description: >
-  Perform web searches via the agent-scout tool (server-side web search through
-  the Devin era of the Windsurf/Codeium backend, GetWebSearchResults). Use when
-  the user needs current web facts, documentation lookups, generic web
-  research, or answers that require up-to-date information beyond the model's
-  training data. Triggers on queries like "search the web for X", "look up X",
-  "what is the latest on X", or any request needing real-time web results.
-  Returns JSON hits with title, url, snippet, and source. Zero-configuration:
-  automatically discovers the local Devin/Windsurf credential, so no API key
-  management is needed.
+  Tools powered by the agent-scout binary (server-side Windsurf/Devin backend):
+  (1) web search via GetWebSearchResults — current web facts, documentation
+  lookups, generic web research, or answers that need up-to-date info beyond
+  the model's training data; and (2) image captioning / vision analysis via
+  GetImageCaption — describe or answer questions about a local image file.
+  Triggers on queries like "search the web for X", "look up X", "what is the
+  latest on X", or "what does this image show / describe this picture".
+  Returns JSON hits with title, url, snippet, and source, or the vision model's
+  caption text. Zero-configuration: automatically discovers the local
+  Devin/Windsurf credential, so no API key management is needed.
 ---
 
-# agent-scout Web Search
+# agent-scout Web Search & Vision
 
-Search the web using the `agent-scout` binary (Rust implementation of
-Windsurf/Devin server-side web search). Auto-discovers the local
-Devin/Windsurf login credential — no key configuration required.
+Search the web and caption/analyze images using the `agent-scout` binary (Rust
+implementation of Windsurf/Devin server-side `GetWebSearchResults` and
+`GetImageCaption`). Auto-discovers the local Devin/Windsurf login credential —
+no key configuration required.
 
 ## Quick start
 
@@ -66,6 +68,35 @@ agent-scout "rust async runtime" --limit 3 | jq '.hits[] | {title, url}'
 - `0` = success
 - `1` = error (e.g. no credential, upstream 4xx/5xx)
 - `2` = usage error
+
+## Image captioning (识图)
+
+Describe or analyze a local image file using the same Windsurf/Devin backend
+(`GetImageCaption`). The `caption` subcommand reads the image, base64-encodes
+it, and prints the model's analysis to stdout.
+
+```bash
+# Basic caption
+agent-scout caption /path/to/photo.png
+
+# Ask a specific question about the image
+agent-scout caption /path/to/photo.png --question "What UI framework is this?"
+
+# Force a mime type (guessed from extension by default)
+agent-scout caption /path/to/image --mime image/webp
+
+# JSON output for scripting
+agent-scout caption /path/to/photo.png --json
+```
+
+stdout is plain text (the caption); add `--json` to get `{"caption": "..."}`. Options:
+
+| flag | meaning |
+|------|---------|
+| `--question "..."` | question / instruction to the vision model |
+| `--mime m` | mime type, e.g. `image/png` (default guessed from extension) |
+| `--json` | output `{"caption": "..."}` instead of plain text |
+| `--api-key k` | explicit key (overrides auto-discovery) |
 
 ## Troubleshooting
 

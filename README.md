@@ -1,9 +1,9 @@
 # agent-scout
 
-**web search** 命令行工具 + MCP server + Agent Skill，基于 Windsurf/Devin 服务端搜索
-（`GetWebSearchResults`），用 **Rust** 编写。
+**web search + 识图（image caption）** 命令行工具 + MCP server + Agent Skill，
+基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption`），用 **Rust** 编写。
 
-> 这是一个**开源的通用 web 搜索工具**，不依赖特定客户端——提供三种使用形态：
+> 这是一个**开源的通用 web 搜索 + 识图工具**，不依赖特定客户端——提供三种使用形态：
 > **CLI**（脚本/终端直接调用）、**MCP server**（接入任意 MCP 客户端）、**Agent Skill**（供 AI agent 调用）。
 > 后端走 Windsurf/Devin 认证，并额外内置 **本地安装认证自动提取** 与 **自动清理的错误日志**。
 
@@ -23,7 +23,7 @@
 
 | 形态 | 说明 | 快速入口 |
 |------|------|----------|
-| **CLI** | 终端/脚本直接搜索，stdout 输出 JSON | `agent-scout "查询" --limit 3` |
+| **CLI** | 终端/脚本直接搜索或识图，stdout 输出 JSON / 描述 | `agent-scout "查询" --limit 3` |
 | **MCP server** | 接入 Cursor / Claude Desktop / 任意 MCP host | `agent-scout --mcp` |
 | **Agent Skill** | 供 AI agent（Codex / InsCode 等）自动调用 | `skills/agent-scout-search/` |
 
@@ -34,8 +34,8 @@
 从拿到二进制到完成首次搜索，**无需任何配置**：
 
 1. **下载/构建** 单个可执行文件（无 Node 运行时、无依赖安装）
-2. **运行** `agent-scout "查询"` —— 自动识别本机 Devin/Windsurf 登录凭证
-3. **完成** 直接返回 JSON 搜索结果
+2. **运行** `agent-scout "查询"` 或 `agent-scout caption 图片` —— 自动识别本机 Devin/Windsurf 登录凭证
+3. **完成** 直接返回 JSON 搜索结果 / 图片描述
 
 **最快方式：一键安装**（从 GitHub Releases 下载最新版二进制，无需 Rust 工具链）：
 
@@ -52,7 +52,7 @@ AGENT_SCOUT_REPO=tasselx/agent-scout curl -fsSL \
 零配置流程示意：
 
 ```
-agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索 ──▶ JSON hits
+agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索 / 识图 ──▶ JSON hits / 描述文本
     无需 API key 配置        零手动步骤           自动重试多 host
 ```
 
@@ -61,6 +61,7 @@ agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索
 ## 功能特性
 
 - 🔍 **Web 搜索**：`GetWebSearchResults` 服务端搜索，返回 `{title, url, snippet, source}` 结构化结果
+- 🖼️ **识图（image caption）**：`GetImageCaption` 服务端视觉分析，描述图片或回答关于图片的问题
 - 🎯 **域名过滤**：`--domain` 限定搜索范围（如 `github.com`）
 - 🪄 **零配置认证**：自动识别本机 Devin/Windsurf 登录 key，无需手动配置
 - 🧩 **MCP server**：`--mcp` 以 stdio 运行，支持 `Content-Length` + NDJSON 双帧协议
@@ -72,13 +73,14 @@ agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索
 
 ```
 src/
-  search.rs   核心搜索：请求体构造、HTTP 调用（多 host 重试）、结果归一化
-  auth.rs     API key 解析（CLI → env → key 文件 → 本地自动发现）、config 读写
-  log.rs      错误/信息日志（按天分文件，自动清理旧日志）
-  mcp.rs      MCP stdio server（NDJSON + Content-Length 双帧协议）
-  main.rs     CLI 入口（查询 + config 子命令 + --mcp）
+  search.rs    核心搜索：请求体构造、HTTP 调用（多 host 重试）、结果归一化
+  caption.rs   识图：GetImageCaption 请求体构造、HTTP 调用（多 host 重试）、base64 读取/mime 猜测
+  auth.rs      API key 解析（CLI → env → key 文件 → 本地自动发现）、config 读写
+  log.rs       错误/信息日志（按天分文件，自动清理旧日志）
+  mcp.rs       MCP stdio server（NDJSON + Content-Length 双帧协议，web_search + image_caption 工具）
+  main.rs      CLI 入口（查询 + caption + config 子命令 + --mcp）
 skills/
-  agent-scout-search/  供 agent 调用的 web 搜索 skill（SKILL.md + openai.yaml）
+  agent-scout-search/  供 agent 调用的 web 搜索 + 识图 skill（SKILL.md + openai.yaml）
 tests/
   search_live.rs  集成测试：本地 mock HTTP 验证 search() 成功路径
 ```
@@ -87,7 +89,7 @@ tests/
 
 ```bash
 cargo build --release                       # 生成 target/release/agent-scout
-cargo test                                  # 21 单元测试 + 3 集成测试
+cargo test                                  # 25 单元测试 + 3 集成测试
 ```
 
 ## Release 下载
@@ -156,6 +158,15 @@ agent-scout "rust async" --limit 3 --api-key 'devin-session-token$...'
 # 运行 MCP stdio server（同样自动发现 key）
 agent-scout --mcp
 
+# 识图：描述一张本地图片
+agent-scout caption ~/Pictures/photo.png
+
+# 识图：针对图片提问
+agent-scout caption ~/Pictures/screen.png --question "这是什么 UI 框架的界面？"
+
+# 识图：输出 JSON（便于脚本解析）
+agent-scout caption ~/Pictures/photo.png --json
+
 # 配置 / 查看 / 测试 / 清除 api key
 agent-scout config set 'devin-session-token$...'
 agent-scout config show
@@ -168,6 +179,7 @@ agent-scout config clear
 | 命令 | 作用 |
 |------|------|
 | `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits |
+| `agent-scout caption <图片路径> [--question "..." --mime m --json] [--api-key k]` | 识图：描述或分析本地图片，stdout 输出描述文本（`--json` 输出 `{"caption": "..."}`） |
 | `agent-scout --mcp` | 以 MCP stdio server 运行 |
 | `agent-scout config set [key]` | 保存 key（chmod 600）；无 key 时交互输入 |
 | `agent-scout config show` | 查看当前 key 状态（掩码显示） |
@@ -216,6 +228,19 @@ key 形如 `devin-session-token$...`。
 | `mode` | number | 否 | 上游模式 |
 
 返回 MCP text content，JSON：`{ "hits": [ { "title", "url", "snippet", "source": "windsurf" } ] }`
+
+`image_caption`
+
+| arg | 类型 | 必填 | 说明 |
+|-----|------|------|------|
+| `image_path` | string | 是* | 本地图片文件路径（PNG/JPG/WebP/GIF） |
+| `image_base64` | string | 是* | 原始 base64 图片数据（可带 `data:` 前缀） |
+| `mime` | string | 否 | MIME 类型，如 `image/png`（默认按路径扩展名猜测） |
+| `question` | string | 否 | 关于图片的问题 / 指令 |
+
+> `image_path` 与 `image_base64` 二选一，至少提供一个。
+
+返回 MCP text content，JSON：`{ "caption": "..." }`
 
 支持两种 MCP 帧协议：`Content-Length`（官方 SDK 客户端）与 NDJSON（手写客户端）。
 
@@ -294,20 +319,20 @@ MCP server 以 **stdio 子进程**方式运行（`agent-scout --mcp`），通过
 }
 ```
 
-配置完成后重启 MCP 客户端，即可在对话中调用 `web_search` 工具。
+配置完成后重启 MCP 客户端，即可在对话中调用 `web_search` / `image_caption` 工具。
 
 ## Skills 使用
 
-仓库附带一个规范 skill，供 AI agent 通过 skill 直接调用 web 搜索：
+仓库附带一个规范 skill，供 AI agent 通过 skill 直接调用 web 搜索与识图：
 
 ```
 skills/agent-scout-search/
-├── SKILL.md           # 使用指引（frontmatter + 步骤）
+├── SKILL.md           # 使用指引（frontmatter + 步骤，含搜索与识图）
 └── agents/openai.yaml # UI 元数据
 ```
 
 - **skill 名**：`agent-scout-search`
-- **功能**：按 SKILL.md 指引，用 `agent-scout` 执行搜索并解析 JSON hits
+- **功能**：按 SKILL.md 指引，用 `agent-scout` 执行搜索并解析 JSON hits，或用 `agent-scout caption` 描述/分析本地图片
 - **通用标准**：采用标准 Agent Skill 规范（`SKILL.md` + YAML frontmatter），理论上支持任何按此规范加载 skills 的 agent——
   InsCode、Codex、以及兼容该规范的其他 agent 框架，不受平台限制。
 
@@ -354,12 +379,21 @@ ln -sfn "$(pwd)/skills/agent-scout-search" ~/.codex/skills/agent-scout-search
 
 > 提示：配合 `jq` 可以快速取字段，如 `agent-scout "query" | jq '.hits[].url'`。
 
+一次 `agent-scout caption ~/Pictures/screen.png --question "这个界面用了什么框架？"` 的 stdout 输出形如：
+
+```text
+界面采用了 React 与 Tailwind CSS 构建，左侧为侧边导航栏，顶部为搜索栏，
+主体区域是一个数据表格，包含用户列表及其状态标签。
+```
+
+识图输出为纯文本描述（无 JSON 包裹），便于直接拼入对话；如需脚本解析，加 `--json` 得到 `{"caption": "..."}`。
+
 ## 错误日志
 
 每次运行会在 `~/.config/windsurf-search/logs/agent-scout-YYYY-MM-DD.log` 写入日志：
 
-- 读取 key 失败、搜索失败、config 出错 → `[ERROR]`
-- 搜索成功 → `[INFO]`
+- 读取 key 失败、搜索/识图失败、config 出错 → `[ERROR]`
+- 搜索/识图成功 → `[INFO]`
 - **自动清理**：每次写入时删除超过 7 天的旧日志，并最多保留 30 个文件
 
 ```bash
