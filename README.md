@@ -1,9 +1,9 @@
 # agent-scout
 
-**web search + 识图（image caption）** 命令行工具 + MCP server + Agent Skill，
-基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption`），用 **Rust** 编写。
+**web search + 识图 + 音频转写** 命令行工具 + MCP server + Agent Skill，
+基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption` / `GetTranscription`），用 **Rust** 编写。
 
-> 这是一个**开源的通用 web 搜索 + 识图工具**，不依赖特定客户端——提供三种使用形态：
+> 这是一个**开源的通用 web 搜索 + 识图 + 转写工具**，不依赖特定客户端——提供三种使用形态：
 > **CLI**（脚本/终端直接调用）、**MCP server**（接入任意 MCP 客户端）、**Agent Skill**（供 AI agent 调用）。
 > 后端走 Windsurf/Devin 认证，并额外内置 **本地安装认证自动提取** 与 **自动清理的错误日志**。
 
@@ -23,7 +23,7 @@
 
 | 形态 | 说明 | 快速入口 |
 |------|------|----------|
-| **CLI** | 终端/脚本直接搜索或识图，stdout 输出 JSON / 描述 | `agent-scout "查询" --limit 3` |
+| **CLI** | 终端/脚本直接搜索/识图/转写，stdout 输出 JSON / 文本 | `agent-scout "查询" --limit 3` |
 | **MCP server** | 接入 Cursor / Claude Desktop / 任意 MCP host | `agent-scout --mcp` |
 | **Agent Skill** | 供 AI agent（Codex / InsCode 等）自动调用 | `skills/agent-scout-search/` |
 
@@ -34,8 +34,8 @@
 从拿到二进制到完成首次搜索，**无需任何配置**：
 
 1. **下载/构建** 单个可执行文件（无 Node 运行时、无依赖安装）
-2. **运行** `agent-scout "查询"` 或 `agent-scout caption 图片` —— 自动识别本机 Devin/Windsurf 登录凭证
-3. **完成** 直接返回 JSON 搜索结果 / 图片描述
+2. **运行** `agent-scout "查询"` / `agent-scout caption 图片` / `agent-scout transcribe 音频` —— 自动识别本机 Devin/Windsurf 登录凭证
+3. **完成** 直接返回 JSON 搜索结果 / 图片描述 / 转写文本
 
 **最快方式：一键安装**（从 GitHub Releases 下载最新版二进制，无需 Rust 工具链）：
 
@@ -52,7 +52,7 @@ AGENT_SCOUT_REPO=tasselx/agent-scout curl -fsSL \
 零配置流程示意：
 
 ```
-agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索 / 识图 ──▶ JSON hits / 描述文本
+agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索 / 识图 / 转写 ──▶ JSON hits / 描述 / 转写文本
     无需 API key 配置        零手动步骤           自动重试多 host
 ```
 
@@ -62,6 +62,7 @@ agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索
 
 - 🔍 **Web 搜索**：`GetWebSearchResults` 服务端搜索，返回 `{title, url, snippet, source}` 结构化结果
 - 🖼️ **识图（image caption）**：`GetImageCaption` 服务端视觉分析，描述图片或回答关于图片的问题
+- 🎙️ **音频转写（transcribe）**：`GetTranscription` 服务端语音转文字（Whisper），格式自动检测（wav/mp3/ogg/opus/webm/m4a/flac）
 - 🎯 **域名过滤**：`--domain` 限定搜索范围（如 `github.com`）
 - 🪄 **零配置认证**：自动识别本机 Devin/Windsurf 登录 key，无需手动配置
 - 🧩 **MCP server**：`--mcp` 以 stdio 运行，支持 `Content-Length` + NDJSON 双帧协议
@@ -73,14 +74,15 @@ agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索
 
 ```
 src/
-  search.rs    核心搜索：请求体构造、HTTP 调用（多 host 重试）、结果归一化
-  caption.rs   识图：GetImageCaption 请求体构造、HTTP 调用（多 host 重试）、base64 读取/mime 猜测
-  auth.rs      API key 解析（CLI → env → key 文件 → 本地自动发现）、config 读写
-  log.rs       错误/信息日志（按天分文件，自动清理旧日志）
-  mcp.rs       MCP stdio server（NDJSON + Content-Length 双帧协议，web_search + image_caption 工具）
-  main.rs      CLI 入口（查询 + caption + config 子命令 + --mcp）
+  search.rs     核心搜索：请求体构造、HTTP 调用（多 host 重试）、结果归一化
+  caption.rs    识图：GetImageCaption 请求体构造、HTTP 调用（多 host 重试）、base64 读取/mime 猜测
+  transcribe.rs 转写：GetTranscription 请求体构造、HTTP 调用（多 host 重试）、base64 读取
+  auth.rs       API key 解析（CLI → env → key 文件 → 本地自动发现）、config 读写
+  log.rs        错误/信息日志（按天分文件，自动清理旧日志）
+  mcp.rs        MCP stdio server（NDJSON + Content-Length 双帧协议，web_search + image_caption + audio_transcribe 工具）
+  main.rs       CLI 入口（查询 + caption + transcribe + config 子命令 + --mcp）
 skills/
-  agent-scout-search/  供 agent 调用的 web 搜索 + 识图 skill（SKILL.md + openai.yaml）
+  agent-scout-search/  供 agent 调用的 web 搜索 + 识图 + 转写 skill（SKILL.md + openai.yaml）
 tests/
   search_live.rs  集成测试：本地 mock HTTP 验证 search() 成功路径
 ```
@@ -89,7 +91,7 @@ tests/
 
 ```bash
 cargo build --release                       # 生成 target/release/agent-scout
-cargo test                                  # 25 单元测试 + 3 集成测试
+cargo test                                  # 29 单元测试 + 3 集成测试
 ```
 
 ## Release 下载
@@ -167,6 +169,12 @@ agent-scout caption ~/Pictures/screen.png --question "这是什么 UI 框架的�
 # 识图：输出 JSON（便于脚本解析）
 agent-scout caption ~/Pictures/photo.png --json
 
+# 转写：将本地音频转成文字
+agent-scout transcribe ~/Recordings/meeting.wav
+
+# 转写：输出 JSON（便于脚本解析）
+agent-scout transcribe ~/Recordings/meeting.mp3 --json
+
 # 配置 / 查看 / 测试 / 清除 api key
 agent-scout config set 'devin-session-token$...'
 agent-scout config show
@@ -180,6 +188,7 @@ agent-scout config clear
 |------|------|
 | `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits |
 | `agent-scout caption <图片路径> [--question "..." --mime m --json] [--api-key k]` | 识图：描述或分析本地图片，stdout 输出描述文本（`--json` 输出 `{"caption": "..."}`） |
+| `agent-scout transcribe <音频路径> [--timeout N --json] [--api-key k]` | 转写：语音转文字，stdout 输出转写文本（`--json` 输出 `{"transcribedText": "..."}`） |
 | `agent-scout --mcp` | 以 MCP stdio server 运行 |
 | `agent-scout config set [key]` | 保存 key（chmod 600）；无 key 时交互输入 |
 | `agent-scout config show` | 查看当前 key 状态（掩码显示） |
@@ -241,6 +250,18 @@ key 形如 `devin-session-token$...`。
 > `image_path` 与 `image_base64` 二选一，至少提供一个。
 
 返回 MCP text content，JSON：`{ "caption": "..." }`
+
+`audio_transcribe`
+
+| arg | 类型 | 必填 | 说明 |
+|-----|------|------|------|
+| `audio_path` | string | 是* | 本地音频文件路径（wav/mp3/ogg/opus/webm/m4a/flac） |
+| `audio_base64` | string | 是* | 原始 base64 音频数据（可带 `data:` 前缀） |
+| `timeout` | number | 否 | 超时秒数（默认 60） |
+
+> `audio_path` 与 `audio_base64` 二选一，至少提供一个。格式由后端自动检测（Whisper）。
+
+返回 MCP text content，JSON：`{ "transcribedText": "..." }`
 
 支持两种 MCP 帧协议：`Content-Length`（官方 SDK 客户端）与 NDJSON（手写客户端）。
 
@@ -319,20 +340,20 @@ MCP server 以 **stdio 子进程**方式运行（`agent-scout --mcp`），通过
 }
 ```
 
-配置完成后重启 MCP 客户端，即可在对话中调用 `web_search` / `image_caption` 工具。
+配置完成后重启 MCP 客户端，即可在对话中调用 `web_search` / `image_caption` / `audio_transcribe` 工具。
 
 ## Skills 使用
 
-仓库附带一个规范 skill，供 AI agent 通过 skill 直接调用 web 搜索与识图：
+仓库附带一个规范 skill，供 AI agent 通过 skill 直接调用 web 搜索、识图与转写：
 
 ```
 skills/agent-scout-search/
-├── SKILL.md           # 使用指引（frontmatter + 步骤，含搜索与识图）
+├── SKILL.md           # 使用指引（frontmatter + 步骤，含搜索、识图与转写）
 └── agents/openai.yaml # UI 元数据
 ```
 
 - **skill 名**：`agent-scout-search`
-- **功能**：按 SKILL.md 指引，用 `agent-scout` 执行搜索并解析 JSON hits，或用 `agent-scout caption` 描述/分析本地图片
+- **功能**：按 SKILL.md 指引，用 `agent-scout` 执行搜索并解析 JSON hits、用 `agent-scout caption` 描述/分析本地图片、或用 `agent-scout transcribe` 转写本地音频
 - **通用标准**：采用标准 Agent Skill 规范（`SKILL.md` + YAML frontmatter），理论上支持任何按此规范加载 skills 的 agent——
   InsCode、Codex、以及兼容该规范的其他 agent 框架，不受平台限制。
 
@@ -388,12 +409,20 @@ ln -sfn "$(pwd)/skills/agent-scout-search" ~/.codex/skills/agent-scout-search
 
 识图输出为纯文本描述（无 JSON 包裹），便于直接拼入对话；如需脚本解析，加 `--json` 得到 `{"caption": "..."}`。
 
+一次 `agent-scout transcribe ~/Recordings/meeting.wav` 的 stdout 输出形如：
+
+```text
+好的，会议开始。首先回顾一下上周的进展……
+```
+
+转写输出为纯文本（无 JSON 包裹）；如需脚本解析，加 `--json` 得到 `{"transcribedText": "..."}`。
+
 ## 错误日志
 
 每次运行会在 `~/.config/windsurf-search/logs/agent-scout-YYYY-MM-DD.log` 写入日志：
 
-- 读取 key 失败、搜索/识图失败、config 出错 → `[ERROR]`
-- 搜索/识图成功 → `[INFO]`
+- 读取 key 失败、搜索/识图/转写失败、config 出错 → `[ERROR]`
+- 搜索/识图/转写成功 → `[INFO]`
 - **自动清理**：每次写入时删除超过 7 天的旧日志，并最多保留 30 个文件
 
 ```bash

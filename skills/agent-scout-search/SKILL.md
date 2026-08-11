@@ -4,21 +4,25 @@ description: >
   Tools powered by the agent-scout binary (server-side Windsurf/Devin backend):
   (1) web search via GetWebSearchResults — current web facts, documentation
   lookups, generic web research, or answers that need up-to-date info beyond
-  the model's training data; and (2) image captioning / vision analysis via
-  GetImageCaption — describe or answer questions about a local image file.
+  the model's training data; (2) image captioning / vision analysis via
+  GetImageCaption — describe or answer questions about a local image file;
+  and (3) audio transcription via GetTranscription — transcribe a local audio
+  file to text.
   Triggers on queries like "search the web for X", "look up X", "what is the
-  latest on X", or "what does this image show / describe this picture".
-  Returns JSON hits with title, url, snippet, and source, or the vision model's
-  caption text. Zero-configuration: automatically discovers the local
-  Devin/Windsurf credential, so no API key management is needed.
+  latest on X", "what does this image show / describe this picture", or
+  "transcribe this audio / what does this recording say".
+  Returns JSON hits with title, url, snippet, and source, the vision model's
+  caption text, or the transcription text. Zero-configuration: automatically
+  discovers the local Devin/Windsurf credential, so no API key management is
+  needed.
 ---
 
-# agent-scout Web Search & Vision
+# agent-scout Web Search, Vision & Transcription
 
-Search the web and caption/analyze images using the `agent-scout` binary (Rust
-implementation of Windsurf/Devin server-side `GetWebSearchResults` and
-`GetImageCaption`). Auto-discovers the local Devin/Windsurf login credential —
-no key configuration required.
+Search the web, caption/analyze images, and transcribe audio using the
+`agent-scout` binary (Rust implementation of Windsurf/Devin server-side
+`GetWebSearchResults`, `GetImageCaption`, and `GetTranscription`). Auto-discovers
+the local Devin/Windsurf login credential — no key configuration required.
 
 ## Quick start
 
@@ -96,6 +100,32 @@ stdout is plain text (the caption); add `--json` to get `{"caption": "..."}`. Op
 | `--question "..."` | question / instruction to the vision model |
 | `--mime m` | mime type, e.g. `image/png` (default guessed from extension) |
 | `--json` | output `{"caption": "..."}` instead of plain text |
+| `--api-key k` | explicit key (overrides auto-discovery) |
+
+## Audio transcription (转写)
+
+Transcribe a local audio file using the same Windsurf/Devin backend
+(`GetTranscription`, backed by OpenAI Whisper). The `transcribe` subcommand
+reads the audio file, base64-encodes it, and prints the transcript to stdout.
+Format is auto-detected by the backend (wav/mp3/ogg/opus/webm/m4a/flac).
+
+```bash
+# Basic transcription
+agent-scout transcribe /path/to/recording.wav
+
+# JSON output for scripting
+agent-scout transcribe /path/to/recording.mp3 --json
+
+# Longer timeout (transcription can be slow, default 60s)
+agent-scout transcribe /path/to/recording.ogg --timeout 120
+```
+
+stdout is plain text (the transcript); add `--json` to get `{"transcribedText": "..."}`. Options:
+
+| flag | meaning |
+|------|---------|
+| `--timeout N` | timeout in seconds (default 60) |
+| `--json` | output `{"transcribedText": "..."}` instead of plain text |
 | `--api-key k` | explicit key (overrides auto-discovery) |
 
 ## Troubleshooting

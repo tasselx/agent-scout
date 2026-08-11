@@ -1,8 +1,8 @@
 # 快速开始（Quick Start）
 
-`agent-scout` 是一个开源的通用 **web 搜索 + 识图**工具，提供三种使用形态：
+`agent-scout` 是一个开源的通用 **web 搜索 + 识图 + 音频转写**工具，提供三种使用形态：
 **CLI** 命令行、**MCP server**（接入任意 MCP 客户端）、**Agent Skill**（供 AI agent 调用）。
-基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption`），**纯 Rust** 编写，
+基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption` / `GetTranscription`），**纯 Rust** 编写，
 **macOS / Linux / Windows 三平台支持**，**零配置即用**——只要本机用 Devin 或 Windsurf 登录过，就会自动识别登录凭证。
 
 > 完整的命令、认证、MCP、skill 说明见 **[README.md](README.md)**。
@@ -10,14 +10,15 @@
 
 ## 💡 开箱即用
 
-拿到二进制即可直接搜索 / 识图，**零配置**：
+拿到二进制即可直接搜索 / 识图 / 转写，**零配置**：
 
 ```bash
 $BIN "tauri window drag region" --limit 3   # 搜索
 $BIN caption ~/Pictures/photo.png           # 识图
+$BIN transcribe ~/Recordings/meeting.wav    # 转写
 ```
 
-只要本机用过 Devin / Windsurf 登录，程序会自动识别登录凭证完成搜索或识图，无需手动设置 API key。
+只要本机用过 Devin / Windsurf 登录，程序会自动识别登录凭证完成搜索、识图或转写，无需手动设置 API key。
 （CLI、MCP、Skill 三种形态都遵循这一零配置原则。）
 
 **不想编译？一键安装**（从 GitHub Releases 下载最新二进制，无需 Rust 工具链）：
@@ -139,6 +140,37 @@ stdout 输出为纯文本描述（无 JSON 包裹）：
 界面采用了 React 与 Tailwind CSS 构建，左侧为侧边导航栏，顶部为搜索栏……
 ```
 
+## 2c. 转写（音频转文字）
+
+同一套零配置原则也适用于转写：`agent-scout transcribe <音频路径>` 会读取本地音频、
+base64 编码后发给服务端 `GetTranscription`（后端为 OpenAI Whisper），把转写文本打印到 stdout。
+格式由后端自动检测（wav/mp3/ogg/opus/webm/m4a/flac），无需指定。
+
+```bash
+# 转写一段音频
+$BIN transcribe ~/Recordings/meeting.wav
+
+# 输出 JSON（便于脚本解析）
+$BIN transcribe ~/Recordings/meeting.mp3 --json
+
+# 加大超时（转写较慢，默认 60 秒）
+$BIN transcribe ~/Recordings/long.ogg --timeout 120
+```
+
+常用参数：
+
+| 参数 | 说明 |
+|------|------|
+| `--timeout N` | 超时秒数（默认 60） |
+| `--json` | 输出 `{"transcribedText": "..."}` 便于脚本解析（默认纯文本） |
+| `--api-key k` | 显式指定 key（覆盖自动识别） |
+
+stdout 输出为纯文本转写（无 JSON 包裹）：
+
+```text
+好的，会议开始。首先回顾一下上周的进展……
+```
+
 ## 3. 验证连接
 
 ```bash
@@ -156,8 +188,9 @@ $BIN --mcp
 采用标准 Model Context Protocol（stdio 传输），**支持任何接入 stdio MCP server 的客户端**——
 Cursor、Claude Desktop、VS Code、Zed、Windsurf、自研 MCP host 等，macOS / Linux / Windows 通用。
 
-暴露 `web_search` 工具（`query` / `limit` / `domain` / `mode`）与 `image_caption` 工具
-（`image_path` / `image_base64` / `mime` / `question`），
+暴露 `web_search` 工具（`query` / `limit` / `domain` / `mode`）、`image_caption` 工具
+（`image_path` / `image_base64` / `mime` / `question`）与 `audio_transcribe` 工具
+（`audio_path` / `audio_base64` / `timeout`），
 支持 `Content-Length` 与 NDJSON 两种帧协议。接入 MCP 客户端：
 
 ```json
@@ -209,8 +242,8 @@ $BIN config clear
 ~/.config/windsurf-search/logs/agent-scout-YYYY-MM-DD.log
 ```
 
-- 每次运行读取 key 失败、搜索/识图失败、config 出错时写入 `[ERROR]`
-- 搜索/识图成功时写入 `[INFO]`
+- 每次运行读取 key 失败、搜索/识图/转写失败、config 出错时写入 `[ERROR]`
+- 搜索/识图/转写成功时写入 `[INFO]`
 - **自动清理**：每次写入时自动删除超过 7 天的旧日志，并最多保留 30 个文件
 
 ```bash
@@ -228,13 +261,13 @@ cargo test                  # 单元 + 集成测试
 
 ## 8. Skills 使用（供 agent 调用）
 
-仓库附带一个规范 skill，供 AI agent 通过 skill 直接调用 web 搜索与识图。
+仓库附带一个规范 skill，供 AI agent 通过 skill 直接调用 web 搜索、识图与转写。
 采用标准 Agent Skill 规范（`SKILL.md` + YAML frontmatter），**理论上支持任何按此规范加载 skills 的 agent**——
 InsCode、Codex 及兼容框架，macOS / Linux / Windows 通用。
 
 ```
 skills/agent-scout-search/
-├── SKILL.md           # 使用指引（frontmatter + 步骤，含搜索与识图）
+├── SKILL.md           # 使用指引（frontmatter + 步骤，含搜索、识图与转写）
 └── agents/openai.yaml # UI 元数据
 ```
 
@@ -254,6 +287,7 @@ Codex 则链接到 `~/.codex/skills/agent-scout-search`。安装后 agent 在需
 |------|------|
 | `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits |
 | `agent-scout caption <图片路径> [--question "..." --mime m --json] [--api-key k]` | 识图：描述/分析本地图片（`--json` 输出 `{"caption": "..."}`） |
+| `agent-scout transcribe <音频路径> [--timeout N --json] [--api-key k]` | 转写：语音转文字（`--json` 输出 `{"transcribedText": "..."}`） |
 | `agent-scout --mcp` | 以 MCP stdio server 运行 |
 | `agent-scout config set [key]` | 保存 key（chmod 600）；无 key 时交互输入 |
 | `agent-scout config show` | 查看当前 key 状态（掩码显示） |
@@ -267,7 +301,7 @@ Codex 则链接到 `~/.codex/skills/agent-scout-search`。安装后 agent 在需
 
 ## 退出码
 
-`0`=成功，`1`=错误，`2`=用法错误。诊断信息走 stderr；搜索的 stdout 为纯 JSON，识图（`caption`）的 stdout 为纯文本描述。
+`0`=成功，`1`=错误，`2`=用法错误。诊断信息走 stderr；搜索的 stdout 为纯 JSON，识图（`caption`）/转写（`transcribe`）的 stdout 为纯文本。
 
 ## 安全提示
 
