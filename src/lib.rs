@@ -6,6 +6,7 @@ pub mod caption;
 pub mod log;
 pub mod mcp;
 pub mod search;
+pub mod transcribe;
 
 pub use search::{Hit, SearchOptions};
 

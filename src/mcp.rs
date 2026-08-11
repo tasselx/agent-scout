@@ -11,6 +11,7 @@ use std::io::{Read, Write};
 
 use crate::caption::{caption_image, guess_mime_from_path, CaptionOptions};
 use crate::search::{search, SearchOptions};
+use crate::transcribe::{transcribe_audio, TranscribeOptions};
 
 pub const SERVER_NAME: &str = "agent-scout";
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -25,6 +26,13 @@ const CAPTION_TOOL_DESCRIPTION: &str = concat!(
     "Caption / analyze an image via Windsurf/Devin server-side vision (GetImageCaption). ",
     "Pass either image_path (a local file) or image_base64 (raw base64, data: prefix optional). ",
     "Returns the model's text analysis of the image."
+);
+
+const TRANSCRIBE_TOOL_DESCRIPTION: &str = concat!(
+    "Transcribe an audio file via Windsurf/Devin server-side speech-to-text (GetTranscription, ",
+    "backed by OpenAI Whisper). Pass either audio_path (a local file) or audio_base64 (raw base64, ",
+    "data: prefix optional). Audio format is auto-detected (wav/mp3/ogg/opus/webm/m4a/flac). ",
+    "Returns the transcribed text."
 );
 
 fn web_search_schema() -> Value {
@@ -62,8 +70,24 @@ fn image_caption_schema() -> Value {
     })
 }
 
+fn audio_transcribe_schema() -> Value {
+    json!({
+        "name": "audio_transcribe",
+        "description": TRANSCRIBE_TOOL_DESCRIPTION,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "audio_path": { "type": "string", "description": "Path to a local audio file (wav/mp3/ogg/opus/webm/m4a/flac)" },
+                "audio_base64": { "type": "string", "description": "Raw base64 audio data (data: prefix optional)" },
+                "timeout": { "type": "number", "minimum": 1, "default": 60, "description": "Timeout in seconds (default 60)" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
 fn tool_list() -> Value {
-    json!({ "tools": [web_search_schema(), image_caption_schema()] })
+    json!({ "tools": [web_search_schema(), image_caption_schema(), audio_transcribe_schema()] })
 }
 
 /// Handle a single JSON-RPC message, returning optional output lines to write.
@@ -112,6 +136,7 @@ fn call_tool(name: &str, args: &Value) -> Result<String, String> {
     match name {
         "web_search" => call_web_search(args),
         "image_caption" => call_image_caption(args),
+        "audio_transcribe" => call_audio_transcribe(args),
         _ => Err(format!("unknown tool: {}", name)),
     }
 }
@@ -181,6 +206,34 @@ fn call_image_caption(args: &Value) -> Result<String, String> {
         crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
     let caption = caption_image(&api_key, &base64_data, &opts).map_err(|e| e.to_string())?;
     let payload = json!({ "caption": caption });
+    Ok(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+fn call_audio_transcribe(args: &Value) -> Result<String, String> {
+    let audio_path = args.get("audio_path").and_then(Value::as_str).unwrap_or("").trim();
+    let audio_base64 = args.get("audio_base64").and_then(Value::as_str).unwrap_or("").trim();
+
+    // Resolve audio bytes as base64 (data: prefix allowed).
+    let base64_data = if !audio_path.is_empty() {
+        crate::transcribe::file_to_base64(audio_path)?
+    } else if !audio_base64.is_empty() {
+        audio_base64.to_string()
+    } else {
+        return Err("audio_transcribe: provide audio_path or audio_base64".to_string());
+    };
+
+    let mut opts = TranscribeOptions::default();
+    if let Some(t) = args.get("timeout").and_then(Value::as_u64) {
+        if t > 0 {
+            opts.timeout_secs = Some(t);
+        }
+    }
+
+    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
+    let api_key =
+        crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
+    let text = transcribe_audio(&api_key, &base64_data, &opts).map_err(|e| e.to_string())?;
+    let payload = json!({ "transcribedText": text });
     Ok(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
@@ -349,6 +402,7 @@ mod tests {
             .filter_map(|t| t["name"].as_str()).collect();
         assert!(names.contains(&"web_search"));
         assert!(names.contains(&"image_caption"));
+        assert!(names.contains(&"audio_transcribe"));
         let ws = &v["result"]["tools"][0];
         assert_eq!(ws["name"], "web_search");
         assert_eq!(ws["inputSchema"]["required"][0], "query");
@@ -373,6 +427,16 @@ mod tests {
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["result"]["isError"], true);
         assert!(v["result"]["content"][0]["text"].as_str().unwrap().contains("image_path or image_base64"));
+    }
+
+    #[test]
+    fn audio_transcribe_requires_audio() {
+        let msg = json!({ "jsonrpc": "2.0", "id": 6, "method": "tools/call",
+            "params": { "name": "audio_transcribe", "arguments": {} } });
+        let out = handle_message(&msg).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["result"]["isError"], true);
+        assert!(v["result"]["content"][0]["text"].as_str().unwrap().contains("audio_path or audio_base64"));
     }
 
     #[test]

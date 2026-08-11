@@ -15,6 +15,7 @@ use std::io::Write;
 use agent_scout::auth;
 use agent_scout::caption::{caption_image, file_to_base64, guess_mime_from_path, CaptionOptions};
 use agent_scout::search::{search, SearchOptions};
+use agent_scout::transcribe::{transcribe_audio, TranscribeOptions};
 
 fn print_usage(stream: &mut dyn Write) {
     let _ = stream.write_all(
@@ -22,6 +23,7 @@ fn print_usage(stream: &mut dyn Write) {
           usage:\n\
           \x20 agent-scout <query> [--limit N] [--domain d] [--mode m] [--api-key k]\n\
           \x20 agent-scout caption <image-path> [--question \"...\"] [--mime m] [--json] [--api-key k]\n\
+          \x20 agent-scout transcribe <audio-path> [--timeout N] [--json] [--api-key k]\n\
           \x20 agent-scout --mcp                 (run as MCP stdio server)\n\
           \x20 agent-scout config set [key]      (save a key to ~/.config/windsurf-search/api-key, chmod 600)\n\
           \x20 agent-scout config show           (show saved key status, masked)\n\
@@ -42,7 +44,8 @@ fn parse_args(argv: &[String]) -> Args {
     while i < argv.len() {
         let token = &argv[i];
         if token == "--limit" || token == "--domain" || token == "--mode"
-            || token == "--api-key" || token == "--question" || token == "--mime" {
+            || token == "--api-key" || token == "--question" || token == "--mime"
+            || token == "--timeout" {
             flags.insert(token[2..].to_string(), argv.get(i + 1).cloned());
             i += 2;
         } else if let Some(rest) = token.strip_prefix("--") {
@@ -211,6 +214,63 @@ fn run_caption(
     }
 }
 
+fn run_transcribe(
+    positionals: &[String],
+    flags: &std::collections::HashMap<String, Option<String>>,
+    home: &std::path::Path,
+) -> i32 {
+    let audio_path = positionals.first().cloned().unwrap_or_default();
+    if audio_path.is_empty() {
+        eprintln!("agent-scout transcribe: audio path is required");
+        return 2;
+    }
+    let cli_key = flags.get("api-key").cloned().flatten().unwrap_or_default();
+    let api_key = match auth::resolve_api_key(home, &cli_key, &std::env::vars().collect::<Vec<_>>(), None) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("{}", e);
+            agent_scout::log::log_error(home, &format!("resolve api key failed: {e}"));
+            return 1;
+        }
+    };
+    let base64_data = match agent_scout::transcribe::file_to_base64(&audio_path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("agent-scout transcribe: {}", e);
+            agent_scout::log::log_error(home, &format!("transcribe read failed: path={:?} error={}", audio_path, e));
+            return 1;
+        }
+    };
+    let mut opts = TranscribeOptions::default();
+    if let Some(t) = flags.get("timeout").cloned().flatten() {
+        if let Ok(n) = t.parse::<u64>() {
+            if n > 0 {
+                opts.timeout_secs = Some(n);
+            }
+        }
+    }
+    let as_json = flags.contains_key("json");
+    match transcribe_audio(&api_key, &base64_data, &opts) {
+        Ok(text) => {
+            agent_scout::log::log_info(
+                home,
+                &format!("transcribe success: path={:?} chars={}", audio_path, text.chars().count()),
+            );
+            if as_json {
+                println!("{}", serde_json::json!({ "transcribedText": text }));
+            } else {
+                println!("{}", text);
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("agent-scout transcribe: {}", e);
+            agent_scout::log::log_error(home, &format!("transcribe failed: path={:?} error={}", audio_path, e));
+            1
+        }
+    }
+}
+
 pub fn main_entry() -> i32 {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = parse_args(&argv);
@@ -242,6 +302,10 @@ pub fn main_entry() -> i32 {
 
     if args.positionals.first().map(String::as_str) == Some("caption") {
         return run_caption(&args.positionals[1..], &args.flags, &home);
+    }
+
+    if args.positionals.first().map(String::as_str) == Some("transcribe") {
+        return run_transcribe(&args.positionals[1..], &args.flags, &home);
     }
 
     if args.positionals.is_empty() {
