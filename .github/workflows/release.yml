@@ -74,8 +74,9 @@ jobs:
           fi
           mkdir -p dist
           cp "$BIN" "dist/${{ matrix.artifact }}"
-          # 附带交接文档，方便使用者快速上手
+          # 附带交接文档与参考实现，方便使用者快速上手
           cp README.md QUICKSTART.md LICENSE dist/
+          cp attachments/image-caption.mjs dist/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
