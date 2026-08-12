@@ -4,6 +4,13 @@
 
 本项目的所有重要变更均记录在此。
 
+## [0.5.0] - 2026-08-12
+
+### 新增
+
+- **Web 文档选项**——新增 `agent-scout webdocs` 子命令与 `get_web_docs_options` MCP 工具，列出可挂载的文档源（`GetWebDocsOptions`；如 cloudflare、duckdb、bun），每个选项带 llms.txt 风格的 `docsUrl` 或 `docsSearchDomain`，以及可选的 `synonyms` / `isFeatured`。
+- **Web 文档选项文档**——在 README / QUICKSTART（双语）与 `agent-scout-search` skill（SKILL.md + agents/openai.yaml）中引入使用说明。
+
 ## [0.4.0] - 2026-08-11
 
 ### 新增

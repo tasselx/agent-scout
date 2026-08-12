@@ -7,6 +7,10 @@ Cargo.lock
 .env.*
 !.env.example
 
+# 本地工具目录（不提交）
+.reasonix/
+.sanshu-memory/
+
 # 敏感文件（绝不提交）
 api-key
 *.pem

@@ -4,6 +4,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.0] - 2026-08-12
+
+### Added
+
+- **Web docs options** — new `agent-scout webdocs` subcommand and `get_web_docs_options` MCP tool listing attachable documentation sources (`GetWebDocsOptions`; e.g. cloudflare, duckdb, bun), each with an llms.txt-style `docsUrl` or `docsSearchDomain` plus optional `synonyms` / `isFeatured`.
+- **Web docs options docs** — usage introduced in README / QUICKSTART (bilingual) and the `agent-scout-search` skill (SKILL.md + agents/openai.yaml).
+
 ## [0.4.0] - 2026-08-11
 
 ### Added
