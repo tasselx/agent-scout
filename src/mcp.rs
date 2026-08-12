@@ -12,6 +12,7 @@ use std::io::{Read, Write};
 use crate::caption::{caption_image, guess_mime_from_path, CaptionOptions};
 use crate::search::{search, SearchOptions};
 use crate::transcribe::{transcribe_audio, TranscribeOptions};
+use crate::webdocs::{get_web_docs_options, WebDocsOptions};
 
 pub const SERVER_NAME: &str = "agent-scout";
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -45,6 +46,13 @@ const FAST_CONTEXT_TOOL_DESCRIPTION: &str = concat!(
     "- max_turns (1-5, default 3): search rounds. INCREASE for deep tracing; 1 for quick lookups.\n",
     "- max_results (1-30, default 10): max files to return.\n",
     "- exclude_paths: dirs to skip in the repo map, e.g. [\"node_modules\",\"dist\",\".git\"].",
+);
+
+const WEB_DOCS_TOOL_DESCRIPTION: &str = concat!(
+    "List web documentation sources (GetWebDocsOptions) offered by the Devin/Windsurf server — ",
+    "e.g. cloudflare, duckdb, bun. Each option carries a docs_url (llms.txt style) or a ",
+    "docs_search_domain, plus optional synonyms and is_featured. Use to discover which ",
+    "documentation sets can be attached to a session's context."
 );
 
 fn web_search_schema() -> Value {
@@ -86,12 +94,27 @@ fn fast_context_schema() -> Value {
     })
 }
 
+fn web_docs_schema() -> Value {
+    json!({
+        "name": "get_web_docs_options",
+        "description": WEB_DOCS_TOOL_DESCRIPTION,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pretty": { "type": "boolean", "default": false, "description": "Pretty-print the JSON output" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
 fn tool_list() -> Value {
     json!({ "tools": [
         web_search_schema(),
         image_caption_schema(),
         audio_transcribe_schema(),
-        fast_context_schema()
+        fast_context_schema(),
+        web_docs_schema()
     ] })
 }
 
@@ -178,6 +201,7 @@ fn call_tool(name: &str, args: &Value) -> Result<String, String> {
         "image_caption" => call_image_caption(args),
         "audio_transcribe" => call_audio_transcribe(args),
         "fast_context_search" => call_fast_context_search(args),
+        "get_web_docs_options" => call_web_docs(args),
         _ => Err(format!("unknown tool: {}", name)),
     }
 }
@@ -341,6 +365,18 @@ fn call_fast_context_search(args: &Value) -> Result<String, String> {
         .block_on(crate::fastcontext::search::search(opts.clone()))
         .map_err(|e| format!("fast_context_search: {}", e))?;
     Ok(crate::fastcontext::search::format_result(&result, &opts))
+}
+
+fn call_web_docs(args: &Value) -> Result<String, String> {
+    let pretty = args.get("pretty").and_then(Value::as_bool).unwrap_or(false);
+    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
+    let cli_key = args.get("api_key").and_then(Value::as_str).unwrap_or("").trim();
+    let api_key =
+        crate::auth::resolve_api_key(&home, cli_key, &env_vars(), None).map_err(|e| e.to_string())?;
+    let opts = WebDocsOptions::default();
+    let options = get_web_docs_options(&api_key, &opts).map_err(|e| format!("get_web_docs_options: {}", e))?;
+    let payload = json!({ "options": options });
+    Ok(render_json(&payload, pretty))
 }
 
 fn render_response(id: Value, result: Value) -> String {

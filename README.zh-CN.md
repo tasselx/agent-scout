@@ -1,7 +1,7 @@
 # agent-scout
 
 **web search + 识图 + 音频转写 + AI 代码搜索** 命令行工具 + MCP server + Agent Skill，
-基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption` / `GetTranscription` / `GetDevstralStream`），用 **Rust** 编写。
+基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption` / `GetTranscription` / `GetDevstralStream` / `GetWebDocsOptions`），用 **Rust** 编写。
 
 > **[English](README.md) | [简体中文](README.zh-CN.md)**
 
@@ -66,6 +66,7 @@ agent-scout 二进制 ──▶ 自动提取本机 key ──▶ 服务端搜索
 - 🖼️ **识图（image caption）**：`GetImageCaption` 服务端视觉分析，描述图片或回答关于图片的问题
 - 🎙️ **音频转写（transcribe）**：`GetTranscription` 服务端语音转文字（Whisper），格式自动检测（wav/mp3/ogg/opus/webm/m4a/flac）
 - 🤖 **AI 代码搜索（fast-context）**：`GetDevstralStream` 对本地代码库做语义搜索——自然语言查询 → 相关文件路径 + 行号范围 + grep 关键词
+- 📚 **Web 文档选项**：`GetWebDocsOptions` 列出可挂载的文档源（如 cloudflare、duckdb、bun），带 llms.txt 风格的 `docsUrl` 或 `docsSearchDomain`
 - 🎯 **域名过滤**：`--domain` 限定搜索范围（如 `github.com`）
 - 🪄 **零配置认证**：自动识别本机 Devin/Windsurf 登录 key，无需手动配置
 - 🧩 **MCP server**：`--mcp` 以 stdio 运行，支持 `Content-Length` + NDJSON 双帧协议
@@ -82,8 +83,10 @@ src/
   transcribe.rs 转写：GetTranscription 请求体构造、HTTP 调用（多 host 重试）、base64 读取
   auth.rs       API key 解析（CLI → env → key 文件 → 本地自动发现）、config 读写
   log.rs        错误/信息日志（按天分文件，自动清理旧日志）
-  mcp.rs        MCP stdio server（NDJSON + Content-Length 双帧协议，web_search + image_caption + audio_transcribe 工具）
-  main.rs       CLI 入口（查询 + caption + transcribe + config 子命令 + --mcp）
+  mcp.rs        MCP stdio server（NDJSON + Content-Length 双帧协议，web_search + image_caption + audio_transcribe + fast_context_search + get_web_docs_options 工具）
+  main.rs       CLI 入口（查询 + caption + transcribe + webdocs + config 子命令 + --mcp）
+  fastcontext/  AI 语义代码搜索（fast-context）：Devstral 协议客户端、执行器、搜索循环
+  webdocs.rs    Web 文档选项：GetWebDocsOptions 请求体构造、HTTP 调用（多 host 重试）、结果归一化
 skills/
   agent-scout-search/  供 agent 调用的 web 搜索 + 识图 + 转写 skill（SKILL.md + openai.yaml）
 tests/
@@ -196,6 +199,10 @@ agent-scout "tauri" --limit 5 | jq '.hits[] | {title, url}'
 # 统计命中数
 agent-scout "rust async" | jq '.hits | length'
 
+# 列出可挂载的 Web 文档选项（GetWebDocsOptions）
+agent-scout webdocs
+agent-scout webdocs --pretty | jq '.options[] | {label, docsUrl}'
+
 # 识图结果转 JSON 后取字段
 agent-scout caption ~/Pictures/photo.png --json | jq -r '.caption'
 
@@ -221,6 +228,7 @@ agent-scout "tokio" --limit 10 > results.json
 | `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--pretty] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits（`--pretty` 美化输出） |
 | `agent-scout caption <图片路径> [--question "..." --mime m --json --pretty] [--api-key k]` | 识图：描述或分析本地图片，stdout 输出描述文本（`--json` 输出 `{"caption": "..."}`，`--pretty` 美化 JSON） |
 | `agent-scout transcribe <音频路径> [--timeout N --json --pretty] [--api-key k]` | 转写：语音转文字，stdout 输出转写文本（`--json` 输出 `{"transcribedText": "..."}`，`--pretty` 美化 JSON） |
+| `agent-scout webdocs [--pretty] [--api-key k]` | 列出可挂载的 Web 文档选项（GetWebDocsOptions） |
 | `agent-scout --mcp` | 以 MCP stdio server 运行 |
 | `agent-scout config set [key]` | 保存 key（chmod 600）；无 key 时交互输入 |
 | `agent-scout config show` | 查看当前 key 状态（掩码显示） |
@@ -431,6 +439,14 @@ key 形如 `devin-session-token$...`。
 
 返回 MCP text content，JSON：`{ "transcribedText": "..." }`
 
+`get_web_docs_options`
+
+| arg | 类型 | 必填 | 说明 |
+|-----|------|------|------|
+| `pretty` | boolean | 否 | 美化输出 JSON（默认 false） |
+
+返回 MCP text content，JSON：`{ "options": [ { "label", "docsUrl" | "docsSearchDomain", "synonyms", "isFeatured" } ] }`——服务端提供的可挂载 Web 文档源列表。
+
 支持两种 MCP 帧协议：`Content-Length`（官方 SDK 客户端）与 NDJSON（手写客户端）。
 
 ## MCP 配置使用
@@ -508,7 +524,7 @@ MCP server 以 **stdio 子进程**方式运行（`agent-scout --mcp`），通过
 }
 ```
 
-配置完成后重启 MCP 客户端，即可在对话中调用 `web_search` / `image_caption` / `audio_transcribe` 工具。
+配置完成后重启 MCP 客户端，即可在对话中调用 `web_search` / `image_caption` / `audio_transcribe` / `fast_context_search` / `get_web_docs_options` 工具。
 
 ## Skills 使用
 

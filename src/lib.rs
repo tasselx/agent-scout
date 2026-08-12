@@ -8,6 +8,7 @@ pub mod log;
 pub mod mcp;
 pub mod search;
 pub mod transcribe;
+pub mod webdocs;
 
 pub use search::{Hit, SearchOptions};
 

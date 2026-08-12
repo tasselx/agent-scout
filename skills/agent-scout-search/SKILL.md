@@ -7,26 +7,29 @@ description: >
   the model's training data; (2) image captioning / vision analysis via
   GetImageCaption — describe or answer questions about a local image file;
   (3) audio transcription via GetTranscription — transcribe a local audio
-  file to text; and (4) fast-context AI semantic code search via
+  file to text; (4) fast-context AI semantic code search via
   GetDevstralStream — find relevant files, line ranges, and grep keywords in
-  a local codebase from a natural-language query.
+  a local codebase from a natural-language query; and (5) web docs options
+  via GetWebDocsOptions — list the attachable documentation sources (with
+  llms.txt-style docsUrl or docsSearchDomain) the server offers.
   Triggers on queries like "search the web for X", "look up X", "what is the
   latest on X", "what does this image show / describe this picture",
-  "transcribe this audio / what does this recording say", or "find where X is
+  "transcribe this audio / what does this recording say", "find where X is
   implemented / where is the authentication logic / which files handle X in
-  this codebase".
+  this codebase", or "list / which web docs can I attach".
   Returns JSON hits with title, url, snippet, and source, the vision model's
-  caption text, the transcription text, or the fast-context result (file
-  paths + line ranges + code snippets + grep keywords). Zero-configuration:
+  caption text, the transcription text, the fast-context result (file
+  paths + line ranges + code snippets + grep keywords), or the web docs
+  option list. Zero-configuration:
   automatically discovers the local Devin/Windsurf credential, so no API key
   management is needed.
 ---
 
-# agent-scout Web Search, Vision, Transcription & Code Search
+# agent-scout Web Search, Vision, Transcription, Code Search & Web Docs
 
-Search the web, caption/analyze images, transcribe audio, and run AI semantic code search on a local codebase using the
+Search the web, caption/analyze images, transcribe audio, run AI semantic code search on a local codebase, and list attachable web documentation sources using the
 `agent-scout` binary (Rust implementation of Windsurf/Devin server-side
-`GetWebSearchResults`, `GetImageCaption`, `GetTranscription`, and `GetDevstralStream`). Auto-discovers
+`GetWebSearchResults`, `GetImageCaption`, `GetTranscription`, `GetDevstralStream`, and `GetWebDocsOptions`). Auto-discovers
 the local Devin/Windsurf login credential — no key configuration required.
 
 ## Quick start
@@ -178,6 +181,34 @@ Options:
 > Note: fast-context consumes Windsurf account quota (one model call per turn;
 > 4 calls by default per query) — prefer one fc call over repeated ones, and
 > tune `--turns` / `--depth` / `--max-results` / `--exclude` to the task.
+
+## Web docs options (Web 文档选项)
+
+List the attachable documentation sources the server offers, using the same
+Windsurf/Devin backend (`GetWebDocsOptions`). Each option carries a label, an
+llms.txt-style `docsUrl` or a `docsSearchDomain`, plus optional `synonyms` /
+`isFeatured` — useful to discover which documentation sets can be attached to
+a session's context.
+
+```bash
+# List all options (JSON on stdout)
+agent-scout webdocs
+
+# Count / filter with jq
+agent-scout webdocs | jq '.options | length'
+agent-scout webdocs | jq -r '.options[] | select(.isFeatured == true) | .label'
+
+# Pretty output for humans
+agent-scout webdocs --pretty
+```
+
+stdout is pure JSON: `{ "options": [ { "label", "docsUrl" | "docsSearchDomain", "synonyms", "isFeatured" } ] }`.
+Options:
+
+| flag | meaning |
+|------|---------|
+| `--pretty` | pretty-print the JSON output |
+| `--api-key k` | explicit key (overrides auto-discovery) |
 
 ## Troubleshooting
 

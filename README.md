@@ -1,7 +1,7 @@
 # agent-scout
 
 **web search + image caption + audio transcription + AI code search** CLI tool + MCP server + Agent Skill,
-backed by Windsurf/Devin server-side APIs (`GetWebSearchResults` / `GetImageCaption` / `GetTranscription` / `GetDevstralStream`), written in **Rust**.
+backed by Windsurf/Devin server-side APIs (`GetWebSearchResults` / `GetImageCaption` / `GetTranscription` / `GetDevstralStream` / `GetWebDocsOptions`), written in **Rust**.
 
 > This is an **open-source general-purpose web search + image caption + transcription + code search tool** that does not depend on any specific client — it ships in three forms:
 > **CLI** (direct invocation from scripts/terminal), **MCP server** (pluggable into any MCP client), **Agent Skill** (for AI agents to call).
@@ -66,6 +66,7 @@ All three forms (CLI / MCP / Skill) follow the same zero-config principle: as lo
 - 🖼️ **Image caption**: `GetImageCaption` server-side vision analysis — describe an image or answer questions about it
 - 🎙️ **Audio transcription**: `GetTranscription` server-side speech-to-text (Whisper), auto-detected formats (wav/mp3/ogg/opus/webm/m4a/flac)
 - 🤖 **AI code search (fast-context)**: `GetDevstralStream` semantic search over a local codebase — natural-language query → relevant file paths + line ranges + grep keywords
+- 📚 **Web docs options**: `GetWebDocsOptions` lists attachable documentation sources (e.g. cloudflare, duckdb, bun) with their llms.txt-style `docsUrl` or `docsSearchDomain`
 - 🎯 **Domain filtering**: `--domain` restricts search scope (e.g. `github.com`)
 - 🪄 **Zero-config auth**: automatically detects the local Devin/Windsurf login key, no manual config
 - 🧩 **MCP server**: `--mcp` runs over stdio, supporting both `Content-Length` + NDJSON framing
@@ -82,9 +83,10 @@ src/
   transcribe.rs transcription: GetTranscription request building, HTTP calls (multi-host retry), base64
   auth.rs       API key resolution (CLI → env → key file → local auto-discovery), config read/write
   log.rs        error/info logs (per-day files, automatic cleanup of old logs)
-  mcp.rs        MCP stdio server (NDJSON + Content-Length framing; web_search + image_caption + audio_transcribe tools)
-  main.rs       CLI entry (search + caption + transcribe + config subcommands + --mcp)
+  mcp.rs        MCP stdio server (NDJSON + Content-Length framing; web_search + image_caption + audio_transcribe + fast_context_search + get_web_docs_options tools)
+  main.rs       CLI entry (search + caption + transcribe + webdocs + config subcommands + --mcp)
   fastcontext/  AI semantic code search (fast-context): Devstral protocol client, executor, search loop
+  webdocs.rs    web docs options: GetWebDocsOptions request building, HTTP calls (multi-host retry), result normalization
 skills/
   agent-scout-search/  web search + caption + transcribe skill for agents (SKILL.md + openai.yaml)
 tests/
@@ -197,6 +199,10 @@ agent-scout "tauri" --limit 5 | jq '.hits[] | {title, url}'
 # Count hits
 agent-scout "rust async" | jq '.hits | length'
 
+# List attachable web docs options (GetWebDocsOptions)
+agent-scout webdocs
+agent-scout webdocs --pretty | jq '.options[] | {label, docsUrl}'
+
 # Extract a caption field
 agent-scout caption ~/Pictures/photo.png --json | jq -r '.caption'
 
@@ -223,6 +229,7 @@ agent-scout "tokio" --limit 10 > results.json
 | `agent-scout caption <image> [--question "..." --mime m --json --pretty] [--api-key k]` | Image caption: describe/analyze a local image (`--json` emits `{"caption": "..."}`, `--pretty` beautifies JSON) |
 | `agent-scout transcribe <audio> [--timeout N --json --pretty] [--api-key k]` | Transcription: speech-to-text (`--json` emits `{"transcribedText": "..."}`, `--pretty` beautifies JSON) |
 | `agent-scout fc <query> [--path DIR] [--turns N] [--depth N] [--max-results N] [--exclude a,b] [--json] [--api-key k]` | AI semantic code search over a local codebase (fast-context) |
+| `agent-scout webdocs [--pretty] [--api-key k]` | List attachable web docs options (GetWebDocsOptions) |
 | `agent-scout --mcp` | Run as MCP stdio server |
 | `agent-scout config set [key]` | Save a key (chmod 600); interactive input when no key given |
 | `agent-scout config show` | Show current key status (masked) |
@@ -446,6 +453,14 @@ Returns MCP text content, JSON: `{ "transcribedText": "..." }`
 
 Returns text content with the relevant file paths, line ranges, code snippets, grep keywords, and stats/config diagnostics.
 
+`get_web_docs_options`
+
+| arg | type | required | description |
+|-----|------|----------|-------------|
+| `pretty` | boolean | no | Pretty-print JSON output (default false) |
+
+Returns MCP text content, JSON: `{ "options": [ { "label", "docsUrl" | "docsSearchDomain", "synonyms", "isFeatured" } ] }` — the attachable web documentation sources offered by the server.
+
 Two MCP framing protocols are supported: `Content-Length` (official SDK clients) and NDJSON (handwritten clients).
 
 ## MCP setup
@@ -523,7 +538,7 @@ To specify a key explicitly, inject it via the environment:
 }
 ```
 
-After configuring, restart your MCP client — you can then call the `web_search` / `image_caption` / `audio_transcribe` / `fast_context_search` tools in conversation.
+After configuring, restart your MCP client — you can then call the `web_search` / `image_caption` / `audio_transcribe` / `fast_context_search` / `get_web_docs_options` tools in conversation.
 
 ## Skills usage
 

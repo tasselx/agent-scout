@@ -4,7 +4,7 @@
 
 `agent-scout` is an open-source, general-purpose **web search + image caption + audio transcription + AI code search** tool with three usage forms:
 **CLI** command line, **MCP server** (pluggable into any MCP client), **Agent Skill** (for AI agents to call).
-It is backed by Windsurf/Devin server-side APIs (`GetWebSearchResults` / `GetImageCaption` / `GetTranscription` / `GetDevstralStream`), written in **pure Rust**,
+It is backed by Windsurf/Devin server-side APIs (`GetWebSearchResults` / `GetImageCaption` / `GetTranscription` / `GetDevstralStream` / `GetWebDocsOptions`), written in **pure Rust**,
 with **macOS / Linux / Windows support** and **zero-config usage** — as long as you have logged into Devin or Windsurf locally, your credentials are auto-detected. The AI code search (`fc`) finds relevant files and line ranges in a local codebase from a natural-language query.
 
 > Full command, auth, MCP, and skill documentation: **[README.md](README.md)**.
@@ -18,6 +18,7 @@ Get the binary and search / caption / transcribe directly, **zero config**:
 $BIN "tauri window drag region" --limit 3   # search
 $BIN caption ~/Pictures/photo.png           # image caption
 $BIN transcribe ~/Recordings/meeting.wav    # transcribe
+$BIN webdocs                                # list attachable web docs options
 ```
 
 As long as you have used Devin / Windsurf locally, the program auto-detects your credentials and completes the search, caption, or transcription — no manual API key setup. (All three forms — CLI, MCP, Skill — follow this zero-config principle.)
@@ -283,6 +284,20 @@ Zero-config applies here too — the local Devin/Windsurf key is auto-detected.
 
 > Note: fast-context consumes Windsurf account quota (one model call per turn; 4 calls by default per query), so it is not meant for high-frequency batch use.
 
+## 2e. Web docs options (list attachable documentation sources)
+
+`agent-scout webdocs` lists the documentation sources the server offers to attach to a session's context
+(`GetWebDocsOptions` — e.g. cloudflare, duckdb, bun), each carrying an llms.txt-style `docsUrl` or a
+`docsSearchDomain`, plus optional `synonyms` and `isFeatured`:
+
+```bash
+$BIN webdocs                       # JSON: { "options": [ { "label", "docsUrl"|"docsSearchDomain", ... } ] }
+$BIN webdocs | jq '.options | length'
+$BIN webdocs --pretty | jq '.options[] | {label, docsUrl}'   # labels + doc URLs only
+```
+
+Same zero-config auth as everything else — the local Devin/Windsurf key is auto-detected.
+
 ## 3. Verify connectivity
 
 ```bash
@@ -302,8 +317,9 @@ Cursor, Claude Desktop, VS Code, Zed, Windsurf, custom MCP hosts, etc., on macOS
 
 Exposes the `web_search` tool (`query` / `limit` / `domain` / `mode`), the `image_caption` tool
 (`image_path` / `image_base64` / `mime` / `question`), the `audio_transcribe` tool
-(`audio_path` / `audio_base64` / `timeout`), and the `fast_context_search` tool
+(`audio_path` / `audio_base64` / `timeout`), the `fast_context_search` tool
 (`query` / `project_path` / `tree_depth` / `max_turns` / `max_results` / `exclude_paths`),
+and the `get_web_docs_options` tool (lists attachable web documentation sources),
 supporting both `Content-Length` and NDJSON framing. Plug into an MCP client:
 
 ```json
@@ -402,6 +418,7 @@ For Codex, link to `~/.codex/skills/agent-scout-search`. After installation, age
 | `agent-scout caption <image> [--question "..." --mime m --json --pretty] [--api-key k]` | Image caption: describe/analyze a local image (`--json` emits `{"caption": "..."}`, `--pretty` beautifies JSON) |
 | `agent-scout transcribe <audio> [--timeout N --json --pretty] [--api-key k]` | Transcription: speech-to-text (`--json` emits `{"transcribedText": "..."}`, `--pretty` beautifies JSON) |
 | `agent-scout fc <query> [--path DIR] [--turns N] [--depth N] [--max-results N] [--exclude a,b] [--json] [--api-key k]` | AI semantic code search over a local codebase (fast-context) |
+| `agent-scout webdocs [--pretty] [--api-key k]` | List attachable web docs options (GetWebDocsOptions) |
 | `agent-scout --mcp` | Run as MCP stdio server |
 | `agent-scout config set [key]` | Save a key (chmod 600); interactive input when no key given |
 | `agent-scout config show` | Show current key status (masked) |

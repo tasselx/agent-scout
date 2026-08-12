@@ -4,7 +4,7 @@
 
 `agent-scout` 是一个开源的通用 **web 搜索 + 识图 + 音频转写 + AI 代码搜索**工具，提供三种使用形态：
 **CLI** 命令行、**MCP server**（接入任意 MCP 客户端）、**Agent Skill**（供 AI agent 调用）。
-基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption` / `GetTranscription` / `GetDevstralStream`），**纯 Rust** 编写，
+基于 Windsurf/Devin 服务端接口（`GetWebSearchResults` / `GetImageCaption` / `GetTranscription` / `GetDevstralStream` / `GetWebDocsOptions`），**纯 Rust** 编写，
 **macOS / Linux / Windows 三平台支持**，**零配置即用**——只要本机用 Devin 或 Windsurf 登录过，就会自动识别登录凭证。AI 代码搜索（`fc`）用自然语言查询即可在本地代码库中定位相关文件与行号。
 
 > 完整的命令、认证、MCP、skill 说明见 **[README.zh-CN.md](README.zh-CN.md)**。
@@ -18,6 +18,7 @@
 $BIN "tauri window drag region" --limit 3   # 搜索
 $BIN caption ~/Pictures/photo.png           # 识图
 $BIN transcribe ~/Recordings/meeting.wav    # 转写
+$BIN webdocs                                # 列出可挂载的 Web 文档选项
 ```
 
 只要本机用过 Devin / Windsurf 登录，程序会自动识别登录凭证完成搜索、识图或转写，无需手动设置 API key。
@@ -289,6 +290,20 @@ $BIN fc "auth" --path . --json | jq -r '.rg_patterns[]' | while read -r p; do rg
 
 > 注意：fast-context 会消耗 Windsurf 账户配额（每轮一次模型调用，默认每查询 4 次），不适合高频批量调用。
 
+## 2e. Web 文档选项（列出可挂载的文档源）
+
+`agent-scout webdocs` 列出服务端提供的、可挂载到会话上下文的文档源
+（`GetWebDocsOptions`——如 cloudflare、duckdb、bun），每个选项带 llms.txt 风格的 `docsUrl`
+或 `docsSearchDomain`，以及可选的 `synonyms` 与 `isFeatured`：
+
+```bash
+$BIN webdocs                       # JSON：{ "options": [ { "label", "docsUrl"|"docsSearchDomain", ... } ] }
+$BIN webdocs | jq '.options | length'
+$BIN webdocs --pretty | jq '.options[] | {label, docsUrl}'   # 只看 label 与文档 URL
+```
+
+与其他功能一样零配置——本机 Devin/Windsurf key 自动识别。
+
 ## 3. 验证连接
 
 ```bash
@@ -307,8 +322,10 @@ $BIN --mcp
 Cursor、Claude Desktop、VS Code、Zed、Windsurf、自研 MCP host 等，macOS / Linux / Windows 通用。
 
 暴露 `web_search` 工具（`query` / `limit` / `domain` / `mode`）、`image_caption` 工具
-（`image_path` / `image_base64` / `mime` / `question`）与 `audio_transcribe` 工具
-（`audio_path` / `audio_base64` / `timeout`），
+（`image_path` / `image_base64` / `mime` / `question`）、`audio_transcribe` 工具
+（`audio_path` / `audio_base64` / `timeout`）、`fast_context_search` 工具
+（`query` / `project_path` / `tree_depth` / `max_turns` / `max_results` / `exclude_paths`）
+与 `get_web_docs_options` 工具（列出可挂载的 Web 文档源），
 支持 `Content-Length` 与 NDJSON 两种帧协议。接入 MCP 客户端：
 
 ```json
@@ -406,6 +423,7 @@ Codex 则链接到 `~/.codex/skills/agent-scout-search`。安装后 agent 在需
 | `agent-scout "<查询>" [--limit N] [--domain d] [--mode m] [--pretty] [--api-key k]` | 执行 web 搜索，stdout 输出 JSON hits（`--pretty` 美化输出） |
 | `agent-scout caption <图片路径> [--question "..." --mime m --json --pretty] [--api-key k]` | 识图：描述/分析本地图片（`--json` 输出 `{"caption": "..."}`，`--pretty` 美化 JSON） |
 | `agent-scout transcribe <音频路径> [--timeout N --json --pretty] [--api-key k]` | 转写：语音转文字（`--json` 输出 `{"transcribedText": "..."}`，`--pretty` 美化 JSON） |
+| `agent-scout webdocs [--pretty] [--api-key k]` | 列出可挂载的 Web 文档选项（GetWebDocsOptions） |
 | `agent-scout --mcp` | 以 MCP stdio server 运行 |
 | `agent-scout config set [key]` | 保存 key（chmod 600）；无 key 时交互输入 |
 | `agent-scout config show` | 查看当前 key 状态（掩码显示） |
