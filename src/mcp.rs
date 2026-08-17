@@ -9,10 +9,8 @@
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 
-use crate::caption::{caption_image, guess_mime_from_path, CaptionOptions};
-use crate::search::{search, SearchOptions};
-use crate::transcribe::{transcribe_audio, TranscribeOptions};
-use crate::webdocs::{get_web_docs_options, WebDocsOptions};
+use crate::ops;
+use crate::search::SearchOptions;
 
 pub const SERVER_NAME: &str = "agent-scout";
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -230,79 +228,46 @@ fn call_web_search(args: &Value) -> Result<String, String> {
         opts.mode = Some(mode);
     }
 
-    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
-    let api_key =
-        crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
-    let hits = search(&api_key, &query, &opts).map_err(|e| e.to_string())?;
-    let payload = json!({ "hits": hits });
-    Ok(render_json(&payload, pretty))
+    let hits = ops::web_search(&ops::home_dir(), "", &query, &opts)?;
+    Ok(ops::hits_json(&hits, pretty))
 }
 
 fn call_image_caption(args: &Value) -> Result<String, String> {
     let pretty = args.get("pretty").and_then(Value::as_bool).unwrap_or(false);
-    let image_path = args.get("image_path").and_then(Value::as_str).unwrap_or("").trim();
-    let image_base64 = args.get("image_base64").and_then(Value::as_str).unwrap_or("").trim();
-
-    // Resolve image bytes as base64 (data: prefix allowed).
-    let base64_data = if !image_path.is_empty() {
-        crate::caption::file_to_base64(image_path)?
-    } else if !image_base64.is_empty() {
-        image_base64.to_string()
-    } else {
+    let image_path = args.get("image_path").and_then(Value::as_str).unwrap_or("");
+    let image_base64 = args.get("image_base64").and_then(Value::as_str).unwrap_or("");
+    if image_path.trim().is_empty() && image_base64.trim().is_empty() {
         return Err("image_caption: provide image_path or image_base64".to_string());
-    };
-
-    let mut opts = CaptionOptions::default();
-    if let Some(q) = args.get("question").and_then(Value::as_str) {
-        if !q.is_empty() {
-            opts.message_text = q.to_string();
-        }
     }
-    if let Some(m) = args.get("mime").and_then(Value::as_str) {
-        if !m.trim().is_empty() {
-            opts.mime_type = m.trim().to_string();
-        } else if !image_path.is_empty() {
-            opts.mime_type = guess_mime_from_path(image_path);
-        }
-    } else if !image_path.is_empty() {
-        opts.mime_type = guess_mime_from_path(image_path);
-    }
-
-    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
-    let api_key =
-        crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
-    let caption = caption_image(&api_key, &base64_data, &opts).map_err(|e| e.to_string())?;
-    let payload = json!({ "caption": caption });
-    Ok(render_json(&payload, pretty))
+    let question = args.get("question").and_then(Value::as_str).unwrap_or("");
+    let mime = args.get("mime").and_then(Value::as_str).unwrap_or("");
+    let caption = ops::image_caption(
+        &ops::home_dir(),
+        "",
+        image_path,
+        image_base64,
+        question,
+        mime,
+    )?;
+    Ok(ops::caption_json(&caption, pretty))
 }
 
 fn call_audio_transcribe(args: &Value) -> Result<String, String> {
     let pretty = args.get("pretty").and_then(Value::as_bool).unwrap_or(false);
-    let audio_path = args.get("audio_path").and_then(Value::as_str).unwrap_or("").trim();
-    let audio_base64 = args.get("audio_base64").and_then(Value::as_str).unwrap_or("").trim();
-
-    // Resolve audio bytes as base64 (data: prefix allowed).
-    let base64_data = if !audio_path.is_empty() {
-        crate::transcribe::file_to_base64(audio_path)?
-    } else if !audio_base64.is_empty() {
-        audio_base64.to_string()
-    } else {
+    let audio_path = args.get("audio_path").and_then(Value::as_str).unwrap_or("");
+    let audio_base64 = args.get("audio_base64").and_then(Value::as_str).unwrap_or("");
+    if audio_path.trim().is_empty() && audio_base64.trim().is_empty() {
         return Err("audio_transcribe: provide audio_path or audio_base64".to_string());
-    };
-
-    let mut opts = TranscribeOptions::default();
-    if let Some(t) = args.get("timeout").and_then(Value::as_u64) {
-        if t > 0 {
-            opts.timeout_secs = Some(t);
-        }
     }
-
-    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
-    let api_key =
-        crate::auth::resolve_api_key(&home, "", &env_vars(), None).map_err(|e| e.to_string())?;
-    let text = transcribe_audio(&api_key, &base64_data, &opts).map_err(|e| e.to_string())?;
-    let payload = json!({ "transcribedText": text });
-    Ok(render_json(&payload, pretty))
+    let timeout = args.get("timeout").and_then(Value::as_u64);
+    let text = ops::audio_transcribe(
+        &ops::home_dir(),
+        "",
+        audio_path,
+        audio_base64,
+        timeout,
+    )?;
+    Ok(ops::transcript_json(&text, pretty))
 }
 
 fn call_fast_context_search(args: &Value) -> Result<String, String> {
@@ -345,56 +310,23 @@ fn call_fast_context_search(args: &Value) -> Result<String, String> {
             .collect();
     }
 
-    if !opts.project_root.is_dir() {
-        return Err(format!(
-            "fast_context_search: project path does not exist: {}",
-            opts.project_root.display()
-        ));
-    }
-
-    // Reuse the same key resolution as the other tools (env → config → local install).
-    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
-    let cli_key = args.get("api_key").and_then(Value::as_str).unwrap_or("").trim();
-    let api_key =
-        crate::auth::resolve_api_key(&home, cli_key, &env_vars(), None).map_err(|e| e.to_string())?;
-    opts.api_key = Some(api_key);
-
-    // fast-context 内部为 async（tokio + reqwest），在此创建一个一次性运行时执行。
-    let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    let result = runtime
-        .block_on(crate::fastcontext::search::search(opts.clone()))
+    let cli_key = args.get("api_key").and_then(Value::as_str).unwrap_or("");
+    let result = ops::fast_context(&ops::home_dir(), cli_key, opts.clone())
         .map_err(|e| format!("fast_context_search: {}", e))?;
     Ok(crate::fastcontext::search::format_result(&result, &opts))
 }
 
 fn call_web_docs(args: &Value) -> Result<String, String> {
     let pretty = args.get("pretty").and_then(Value::as_bool).unwrap_or(false);
-    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
-    let cli_key = args.get("api_key").and_then(Value::as_str).unwrap_or("").trim();
-    let api_key =
-        crate::auth::resolve_api_key(&home, cli_key, &env_vars(), None).map_err(|e| e.to_string())?;
-    let opts = WebDocsOptions::default();
-    let options = get_web_docs_options(&api_key, &opts).map_err(|e| format!("get_web_docs_options: {}", e))?;
-    let payload = json!({ "options": options });
-    Ok(render_json(&payload, pretty))
+    let cli_key = args.get("api_key").and_then(Value::as_str).unwrap_or("");
+    let options = ops::web_docs(&ops::home_dir(), cli_key)
+        .map_err(|e| format!("get_web_docs_options: {}", e))?;
+    Ok(ops::webdocs_json(&options, pretty))
 }
 
 fn render_response(id: Value, result: Value) -> String {
     serde_json::to_string(&json!({ "jsonrpc": "2.0", "id": id, "result": result }))
         .unwrap_or_default()
-}
-
-/// Serialize a payload as compact or pretty JSON, depending on the `pretty` flag.
-fn render_json(payload: &Value, pretty: bool) -> String {
-    if pretty {
-        serde_json::to_string_pretty(payload).unwrap_or_else(|_| "{}".to_string())
-    } else {
-        serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string())
-    }
-}
-
-fn env_vars() -> Vec<(String, String)> {
-    std::env::vars().collect()
 }
 
 /// Run the MCP stdio server until EOF on stdin.

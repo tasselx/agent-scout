@@ -5,10 +5,13 @@
 
 use serde_json::{json, Value};
 
+use crate::api;
+
 pub const WEB_SEARCH_PATH: &str = "/exa.api_server_pb.ApiServerService/GetWebSearchResults";
-pub const SERVER_HOSTS: [&str; 2] = ["server.codeium.com", "server.self-serve.windsurf.com"];
+pub use api::SERVER_HOSTS;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 20;
 pub const MAX_LIMIT: usize = 10;
+const RPC: &str = "GetWebSearchResults";
 
 /// A normalized search hit shipped to the client.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -51,14 +54,7 @@ pub fn build_request_body(api_key: &str, query: &str, opts: &SearchOptions) -> V
         opts.limit.min(MAX_LIMIT)
     };
     let mut body = json!({
-        "metadata": {
-            "apiKey": api_key,
-            "ideName": "windsurf",
-            "ideVersion": "1.9600.41",
-            "extensionName": "windsurf",
-            "extensionVersion": "1.9600.41",
-            "locale": "en",
-        },
+        "metadata": api::metadata(api_key),
         "query": trimmed,
         "limit": limit,
     });
@@ -122,94 +118,39 @@ pub enum SearchError {
     Json(String),
 }
 
+impl From<api::RpcError> for SearchError {
+    fn from(error: api::RpcError) -> Self {
+        match error.kind {
+            api::RpcErrorKind::Timeout => Self::Timeout,
+            api::RpcErrorKind::Http(status, raw) => Self::Http(status, raw),
+            api::RpcErrorKind::Transport(message) => Self::Transport(message),
+            api::RpcErrorKind::Json(message) => Self::Json(message),
+        }
+    }
+}
+
 impl std::fmt::Display for SearchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SearchError::Timeout => write!(f, "GetWebSearchResults timed out"),
-            SearchError::Http(status, raw) => {
-                write!(f, "GetWebSearchResults -> HTTP {}: {}", status, raw)
-            }
-            SearchError::Transport(msg) => write!(f, "GetWebSearchResults transport: {}", msg),
-            SearchError::Json(msg) => write!(f, "GetWebSearchResults response parse: {}", msg),
+            Self::Timeout => write!(f, "{RPC} timed out"),
+            Self::Http(status, raw) => write!(f, "{RPC} -> HTTP {status}: {raw}"),
+            Self::Transport(message) => write!(f, "{RPC} transport: {message}"),
+            Self::Json(message) => write!(f, "{RPC} response parse: {message}"),
         }
     }
 }
 
 impl std::error::Error for SearchError {}
 
-/// POST a JSON body to one host and return the parsed payload.
-/// `host` may be a bare hostname (https is assumed) or a full http(s) URL
-/// (used for local mock testing).
-fn post_json(host: &str, body: &Value, timeout_secs: u64) -> Result<Value, SearchError> {
-    let url = if host.starts_with("http://") || host.starts_with("https://") {
-        format!("{}{}", host, WEB_SEARCH_PATH)
-    } else {
-        format!("https://{}{}", host, WEB_SEARCH_PATH)
-    };
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(timeout_secs))
-        .timeout_read(std::time::Duration::from_secs(timeout_secs))
-        .build();
-    let response = agent
-        .post(&url)
-        .set("Content-Type", "application/json")
-        .set("Connect-Protocol-Version", "1")
-        .set("Accept", "application/json")
-        .set("User-Agent", "windsurf/1.9600.41")
-        .send_json(body)
-        .map_err(|err| match err {
-            ureq::Error::Status(status, resp) => {
-                let raw = resp.into_string().unwrap_or_default();
-                SearchError::Http(status, limit_display(&raw))
-            }
-            ureq::Error::Transport(t) => {
-                // ureq 2 surfaces timeouts as an Io/transport error; detect by
-                // the message text since there is no dedicated Timeout kind.
-                let msg = t.to_string();
-                if msg.to_lowercase().contains("timeout") || msg.to_lowercase().contains("timed out") {
-                    SearchError::Timeout
-                } else {
-                    SearchError::Transport(msg)
-                }
-            }
-        })?;
-    let status = response.status();
-    if status >= 400 {
-        let raw = response.into_string().unwrap_or_default();
-        return Err(SearchError::Http(status, limit_display(&raw)));
-    }
-    response
-        .into_json::<Value>()
-        .map_err(|e| SearchError::Json(e.to_string()))
-}
-
-fn limit_display(s: &str) -> String {
-    let mut out: String = s.chars().take(200).collect();
-    if s.chars().count() > 200 {
-        out.push_str("…");
-    }
-    out
-}
-
 /// Run one search against the upstream endpoint, trying each host in order
 /// until one returns success. Mirrors `searchWindsurf`.
 pub fn search(api_key: &str, query: &str, opts: &SearchOptions) -> Result<Vec<Hit>, SearchError> {
     let body = build_request_body(api_key, query, opts);
     let timeout = opts.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
-    let hosts: Vec<String> = match &opts.hosts {
-        Some(h) if !h.is_empty() => h.clone(),
-        _ => SERVER_HOSTS.iter().map(|s| s.to_string()).collect(),
-    };
-    let mut last_error: Option<SearchError> = None;
-    for host in &hosts {
-        match post_json(host, &body, timeout) {
-            Ok(payload) => return Ok(normalize_hits(&payload)),
-            Err(e) => last_error = Some(e),
-        }
-    }
-    Err(last_error.unwrap_or(SearchError::Transport(
-        "all hosts failed".to_string(),
-    )))
+    let hosts = api::resolve_hosts(opts.hosts.as_deref());
+    let payload = api::post_json_failover(WEB_SEARCH_PATH, &body, &hosts, timeout, RPC)
+        .map_err(SearchError::from)?;
+    Ok(normalize_hits(&payload))
 }
 
 #[cfg(test)]

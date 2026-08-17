@@ -13,10 +13,8 @@
 use std::io::Write;
 
 use agent_scout::auth;
-use agent_scout::caption::{caption_image, file_to_base64, guess_mime_from_path, CaptionOptions};
-use agent_scout::search::{search, SearchOptions};
-use agent_scout::transcribe::{transcribe_audio, TranscribeOptions};
-use agent_scout::webdocs::{get_web_docs_options, WebDocsOptions};
+use agent_scout::ops;
+use agent_scout::search::SearchOptions;
 
 fn print_usage(stream: &mut dyn Write) {
     let _ = stream.write_all(
@@ -125,7 +123,7 @@ fn run_config(action: &str, args: &[String], home: &std::path::Path) -> i32 {
             };
             println!("testing key {} ({}) with query {:?}", auth::mask_key(&key), auth::describe_key_format(&key).label, query);
             let opts = SearchOptions { limit: 1, ..Default::default() };
-            match search(&key, &query, &opts) {
+            match ops::web_search(home, &key, &query, &opts) {
                 Ok(hits) => {
                     println!("OK: got {} result(s)", hits.len());
                     if let Some(first) = hits.first() {
@@ -166,52 +164,18 @@ fn run_caption(
         return 2;
     }
     let cli_key = flags.get("api-key").cloned().flatten().unwrap_or_default();
-    let api_key = match auth::resolve_api_key(home, &cli_key, &std::env::vars().collect::<Vec<_>>(), None) {
-        Ok(k) => k,
-        Err(e) => {
-            eprintln!("{}", e);
-            agent_scout::log::log_error(home, &format!("resolve api key failed: {e}"));
-            return 1;
-        }
-    };
-    let base64_data = match file_to_base64(&image_path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("agent-scout caption: {}", e);
-            agent_scout::log::log_error(home, &format!("caption read failed: path={:?} error={}", image_path, e));
-            return 1;
-        }
-    };
-    let mut opts = CaptionOptions::default();
-    if let Some(q) = flags.get("question").cloned().flatten() {
-        if !q.is_empty() {
-            opts.message_text = q;
-        }
-    }
-    if let Some(m) = flags.get("mime").cloned().flatten() {
-        if !m.trim().is_empty() {
-            opts.mime_type = m.trim().to_string();
-        } else {
-            opts.mime_type = guess_mime_from_path(&image_path);
-        }
-    } else {
-        opts.mime_type = guess_mime_from_path(&image_path);
-    }
+    let question = flags.get("question").cloned().flatten().unwrap_or_default();
+    let mime = flags.get("mime").cloned().flatten().unwrap_or_default();
     let as_json = flags.contains_key("json");
     let pretty = flags.contains_key("pretty");
-    match caption_image(&api_key, &base64_data, &opts) {
+    match ops::image_caption(home, &cli_key, &image_path, "", &question, &mime) {
         Ok(caption) => {
             agent_scout::log::log_info(
                 home,
                 &format!("caption success: path={:?} chars={}", image_path, caption.chars().count()),
             );
             if as_json {
-                let payload = serde_json::json!({ "caption": caption });
-                if pretty {
-                    println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
-                } else {
-                    println!("{}", payload);
-                }
+                println!("{}", ops::caption_json(&caption, pretty));
             } else {
                 println!("{}", caption);
             }
@@ -236,45 +200,22 @@ fn run_transcribe(
         return 2;
     }
     let cli_key = flags.get("api-key").cloned().flatten().unwrap_or_default();
-    let api_key = match auth::resolve_api_key(home, &cli_key, &std::env::vars().collect::<Vec<_>>(), None) {
-        Ok(k) => k,
-        Err(e) => {
-            eprintln!("{}", e);
-            agent_scout::log::log_error(home, &format!("resolve api key failed: {e}"));
-            return 1;
-        }
-    };
-    let base64_data = match agent_scout::transcribe::file_to_base64(&audio_path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("agent-scout transcribe: {}", e);
-            agent_scout::log::log_error(home, &format!("transcribe read failed: path={:?} error={}", audio_path, e));
-            return 1;
-        }
-    };
-    let mut opts = TranscribeOptions::default();
-    if let Some(t) = flags.get("timeout").cloned().flatten() {
-        if let Ok(n) = t.parse::<u64>() {
-            if n > 0 {
-                opts.timeout_secs = Some(n);
-            }
-        }
-    }
+    let timeout = flags
+        .get("timeout")
+        .cloned()
+        .flatten()
+        .and_then(|t| t.parse::<u64>().ok())
+        .filter(|n| *n > 0);
     let as_json = flags.contains_key("json");
     let pretty = flags.contains_key("pretty");
-    match transcribe_audio(&api_key, &base64_data, &opts) {
+    match ops::audio_transcribe(home, &cli_key, &audio_path, "", timeout) {
         Ok(text) => {
             agent_scout::log::log_info(
                 home,
                 &format!("transcribe success: path={:?} chars={}", audio_path, text.chars().count()),
             );
             if as_json {
-                let payload = serde_json::json!({ "transcribedText": text });
-                if pretty {
-                    println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
-                } else {
-                    println!("{}", payload);
-                }
+                println!("{}", ops::transcript_json(&text, pretty));
             } else {
                 println!("{}", text);
             }
@@ -333,24 +274,13 @@ fn run_fc(
             opts.exclude_paths = e.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
         }
     }
-    if !cli_key.is_empty() {
-        opts.api_key = Some(cli_key);
-    }
 
     if !opts.project_root.is_dir() {
         eprintln!("agent-scout fc: project path does not exist: {}", opts.project_root.display());
         return 2;
     }
 
-    let runtime = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(e) => {
-            eprintln!("agent-scout fc: 无法创建异步运行时: {}", e);
-            return 1;
-        }
-    };
-    let result = runtime.block_on(agent_scout::fastcontext::search::search(opts.clone()));
-    let result = match result {
+    let result = match ops::fast_context(home, &cli_key, opts.clone()) {
         Ok(result) => result,
         Err(e) => {
             eprintln!("agent-scout fc: {}", e);
@@ -363,14 +293,9 @@ fn run_fc(
     let pretty = flags.contains_key("pretty");
     if as_json {
         let payload = agent_scout::fastcontext::search::search_result_json(&result, &opts);
-        if pretty {
-            println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
-        } else {
-            println!("{}", payload);
-        }
+        println!("{}", ops::render_json(&payload, pretty));
     } else {
-        let text = agent_scout::fastcontext::search::format_result(&result, &opts);
-        println!("{}", text);
+        println!("{}", agent_scout::fastcontext::search::format_result(&result, &opts));
     }
 
     agent_scout::log::log_info(home, &format!("fastcontext success: query={:?}", opts.query));
@@ -382,23 +307,9 @@ fn run_webdocs(
     home: &std::path::Path,
 ) -> i32 {
     let cli_key = flags.get("api-key").cloned().flatten().unwrap_or_default();
-    let api_key = match auth::resolve_api_key(home, &cli_key, &std::env::vars().collect::<Vec<_>>(), None) {
-        Ok(k) => k,
-        Err(e) => {
-            eprintln!("{}", e);
-            agent_scout::log::log_error(home, &format!("resolve api key failed: {e}"));
-            return 1;
-        }
-    };
-    let opts = WebDocsOptions::default();
-    match get_web_docs_options(&api_key, &opts) {
+    match ops::web_docs(home, &cli_key) {
         Ok(options) => {
-            let payload = serde_json::json!({ "options": options });
-            if flags.contains_key("pretty") {
-                println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
-            } else {
-                println!("{}", serde_json::to_string(&payload).unwrap_or_default());
-            }
+            println!("{}", ops::webdocs_json(&options, flags.contains_key("pretty")));
             agent_scout::log::log_info(
                 home,
                 &format!("webdocs success: options={}", options.len()),
@@ -416,7 +327,7 @@ fn run_webdocs(
 pub fn main_entry() -> i32 {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let args = parse_args(&argv);
-    let home = home::home_dir().unwrap_or_else(std::path::PathBuf::default);
+    let home = ops::home_dir();
 
     // --mcp / --serve: run the MCP stdio server.
     if args.flags.contains_key("mcp") || args.flags.contains_key("serve") {
@@ -467,14 +378,6 @@ pub fn main_entry() -> i32 {
 
     let query = args.positionals.join(" ");
     let cli_key = args.flags.get("api-key").cloned().flatten().unwrap_or_default();
-    let api_key = match auth::resolve_api_key(&home, &cli_key, &std::env::vars().collect::<Vec<_>>(), None) {
-        Ok(k) => k,
-        Err(e) => {
-            eprintln!("{}", e);
-            agent_scout::log::log_error(&home, &format!("resolve api key failed: {e}"));
-            return 1;
-        }
-    };
 
     let mut opts = SearchOptions::default();
     if let Some(limit) = args.flags.get("limit").cloned().flatten() {
@@ -497,14 +400,9 @@ pub fn main_entry() -> i32 {
         }
     }
 
-    match search(&api_key, &query, &opts) {
+    match ops::web_search(&home, &cli_key, &query, &opts) {
         Ok(hits) => {
-            let payload = serde_json::json!({ "hits": hits });
-            if args.flags.contains_key("pretty") {
-                println!("{}", serde_json::to_string_pretty(&payload).unwrap_or_default());
-            } else {
-                println!("{}", serde_json::to_string(&payload).unwrap_or_default());
-            }
+            println!("{}", ops::hits_json(&hits, args.flags.contains_key("pretty")));
             agent_scout::log::log_info(
                 &home,
                 &format!("search success: query={:?} hits={}", query, hits.len()),

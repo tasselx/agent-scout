@@ -5,7 +5,10 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::thread;
 
-use agent_scout::search::{search, SearchOptions};
+use agent_scout::caption::CaptionError;
+use agent_scout::search::{search, SearchError, SearchOptions};
+use agent_scout::transcribe::TranscribeError;
+use agent_scout::webdocs::WebDocsError;
 
 /// Start a tiny mock HTTP server that returns a fixed JSON payload for any
 /// POST, and echoes the request path + body to a shared log for assertions.
@@ -123,4 +126,26 @@ fn search_reports_http_error_without_panicking() {
     };
     let result = search("k", "q", &opts);
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn search_is_safe_inside_a_tokio_runtime() {
+    let (host, _) = start_mock();
+    let opts = SearchOptions {
+        hosts: Some(vec![host]),
+        timeout_secs: Some(5),
+        ..Default::default()
+    };
+    assert!(search("k", "q", &opts).is_ok());
+}
+
+#[test]
+fn public_error_variants_remain_constructible() {
+    assert!(matches!(SearchError::Timeout, SearchError::Timeout));
+    assert!(matches!(CaptionError::Http(500, String::new()), CaptionError::Http(500, _)));
+    assert!(matches!(
+        TranscribeError::Transport(String::new()),
+        TranscribeError::Transport(_)
+    ));
+    assert!(matches!(WebDocsError::Json(String::new()), WebDocsError::Json(_)));
 }

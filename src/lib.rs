@@ -1,11 +1,13 @@
 //! agent-scout — MCP server + CLI for Windsurf/Devin server-side web search.
 //! Core logic is pure Rust; see `search` and `auth` modules.
 
+pub mod api;
 pub mod auth;
 pub mod caption;
 pub mod fastcontext;
 pub mod log;
 pub mod mcp;
+pub mod ops;
 pub mod search;
 pub mod transcribe;
 pub mod webdocs;
