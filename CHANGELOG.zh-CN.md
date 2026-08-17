@@ -4,6 +4,22 @@
 
 本项目的所有重要变更均记录在此。
 
+## [0.5.1] - 2026-08-17
+
+### 变更
+
+- **共享 RPC 客户端**——search / caption / transcribe / webdocs 统一复用一套 JSON-RPC 客户端（`api.rs`）中的 `metadata`、`post_json`、host 故障切换与错误枚举，取代原先四份各自漂移的实现。
+- **CLI/MCP 统一入口**——鉴权、读文件、RPC 调用与 JSON 序列化收拢到 `ops.rs`；CLI（`main.rs`）与 MCP（`mcp.rs`）都经由它调用。
+- **fast-context 执行器模块化**——原先 1700 行的单文件 `executor.rs` 拆分为 `executor/` 模块（`mod`、`command`、`fs`、`listing`、`readfile`、`rg`）。
+
+### 修复
+
+- `fast_context` 现在可以安全地在已有 tokio runtime 内运行（MCP stdio 线程）；CLI 仍使用独立的一次性 runtime。
+
+### 新增
+
+- 回归测试：`search` 与 `block_on` 的 tokio runtime 安全性，以及公共错误枚举（`SearchError`、`CaptionError`、`TranscribeError`、`WebDocsError`）仍可构造。
+
 ## [0.5.0] - 2026-08-12
 
 ### 新增

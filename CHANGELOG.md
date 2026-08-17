@@ -4,6 +4,22 @@
 
 All notable changes to this project are documented here.
 
+## [0.5.1] - 2026-08-17
+
+### Changed
+
+- **Shared RPC client** — search / caption / transcribe / webdocs now reuse one JSON-RPC client (`api.rs`) for `metadata`, `post_json`, host failover and the error enum, instead of four drifting copies.
+- **Unified CLI/MCP entry points** — authentication, file reading, RPC calls and JSON serialization are centralized in `ops.rs`; CLI (`main.rs`) and MCP (`mcp.rs`) both call through it.
+- **fast-context executor modularized** — the single 1700-line `executor.rs` is split into `executor/` modules (`mod`, `command`, `fs`, `listing`, `readfile`, `rg`).
+
+### Fixed
+
+- `fast_context` now runs safely inside an existing tokio runtime (MCP stdio thread); CLI stays on its own one-shot runtime.
+
+### Added
+
+- Regression tests: tokio-runtime safety for `search` and `block_on`, and public error variants (`SearchError`, `CaptionError`, `TranscribeError`, `WebDocsError`) remain constructible.
+
 ## [0.5.0] - 2026-08-12
 
 ### Added

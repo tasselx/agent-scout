@@ -1,6 +1,6 @@
 [package]
 name = "agent-scout"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 description = "MCP server + CLI for Windsurf/Devin server-side web search, image caption, transcription & AI code search (fast-context), Rust core"
 license = "MIT"
